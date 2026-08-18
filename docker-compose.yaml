@@ -1,0 +1,15 @@
+services:
+  kali:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tsecbench/kali:latest
+    restart: unless-stopped
+    shm_size: 2gb
+    stdin_open: true
+    tty: true
+    volumes:
+      - kali-data:/workspace
+
+volumes:
+  kali-data:
