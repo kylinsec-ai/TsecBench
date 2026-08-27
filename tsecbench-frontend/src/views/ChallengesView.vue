@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '../api/tsecbench'
-import { llmReady, settingsReady } from '../api/settings'
+import { llmReady, settings, settingsReady } from '../api/settings'
 import { createSolveSession } from '../composables/useSolver'
 
 const router = useRouter()
@@ -133,6 +133,22 @@ async function autoRunAll() {
     showLog.value = true
     return
   }
+  if (!llmReady()) {
+    autoLogs.value.push({
+      time: now(),
+      type: 'error',
+      text: 'LLM 未配置（LLM Base URL / API Key / 模型），请在「Settings」中填写',
+    })
+    showLog.value = true
+    return
+  }
+  if (!settings.autoClose) {
+    autoLogs.value.push({
+      time: now(),
+      type: 'warn',
+      text: '「自动关容器」已关闭：容器将累积，达到 3 个并发上限后后续题目会启动失败',
+    })
+  }
   autoRunning.value = true
   showLog.value = true
   autoLogs.value = []
@@ -178,27 +194,28 @@ async function autoRunAll() {
 
     <div class="dashboard-rule" aria-hidden="true"></div>
 
-    <section class="metric-strip" aria-label="任务概览">
-      <article class="metric-card metric-emphasis">
-        <span class="metric-label"><i></i>可行动题目</span>
-        <strong>{{ stats.actionable }}</strong>
-        <span class="metric-note">等待你的下一步</span>
-      </article>
-      <article class="metric-card">
-        <span class="metric-label"><i class="dot-violet"></i>运行中实例</span>
-        <strong>{{ stats.active }}</strong>
-        <span class="metric-note">容器生命周期活动</span>
-      </article>
-      <article class="metric-card">
-        <span class="metric-label"><i class="dot-muted"></i>已通关</span>
-        <strong>{{ stats.completed }}</strong>
-        <span class="metric-note">共 {{ stats.total }} 道题</span>
-      </article>
-      <article class="metric-card">
-        <span class="metric-label"><i class="dot-coral"></i>剩余资源位</span>
-        <strong>{{ stats.slots }}</strong>
-        <span class="metric-note">上限 {{ maxActive }} 个实例</span>
-      </article>
+    <section class="telemetry" aria-label="任务概览">
+      <div class="telemetry-cell">
+        <span class="telemetry-label"><i class="dot-accent"></i>可行动题目</span>
+        <strong class="mono">{{ stats.actionable }}</strong>
+        <span class="telemetry-note">等待下一步</span>
+      </div>
+      <div class="telemetry-cell">
+        <span class="telemetry-label"><i class="dot-violet"></i>运行中实例</span>
+        <strong class="mono">{{ stats.active }}</strong>
+        <span class="telemetry-note">容器活动</span>
+      </div>
+      <div class="telemetry-cell">
+        <span class="telemetry-label"><i class="dot-muted"></i>已通关</span>
+        <strong class="mono">{{ stats.completed }}</strong>
+        <span class="telemetry-note">共 {{ stats.total }} 道题</span>
+      </div>
+      <div class="telemetry-cell">
+        <span class="telemetry-label"><i class="dot-coral"></i>剩余资源位</span>
+        <strong class="mono">{{ stats.slots }}</strong>
+        <span class="telemetry-note">上限 {{ maxActive }}</span>
+      </div>
+      <div class="telemetry-live mono"><i aria-hidden="true"></i>LIVE</div>
     </section>
 
     <div v-if="error" class="notice notice-error" role="alert">
@@ -371,7 +388,7 @@ async function autoRunAll() {
 
 .eyebrow {
   margin: 0;
-  color: var(--text-dim);
+  color: var(--text-faint);
   font-size: 9px;
   letter-spacing: 0.15em;
   line-height: 1.3;
@@ -402,7 +419,7 @@ async function autoRunAll() {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  background: rgba(30, 36, 56, 0.58);
+  background: var(--panel);
 }
 
 .button-glyph {
@@ -413,31 +430,32 @@ async function autoRunAll() {
 .dashboard-rule {
   height: 1px;
   margin: 28px 0 16px;
-  background: linear-gradient(90deg, var(--border-strong), rgba(82, 93, 134, 0.05));
+  background: linear-gradient(90deg, var(--border-strong), rgba(205, 214, 227, 0.08));
 }
 
-.metric-strip {
+/* ── Telemetry strip: the signature readout ─────────────────────────── */
+.telemetry {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  margin-bottom: 28px;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
+  align-items: stretch;
+  margin-bottom: 30px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(15, 22, 32, 0.03);
 }
 
-.metric-card {
-  min-height: 116px;
+.telemetry-cell {
+  min-height: 96px;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
-  padding: 14px 15px;
-  background: rgba(23, 26, 42, 0.78);
-  border: 1px solid var(--border);
+  justify-content: center;
+  padding: 15px 20px;
+  border-right: 1px solid var(--border);
 }
 
-.metric-emphasis {
-  border-top-color: var(--accent);
-}
-
-.metric-label {
+.telemetry-label {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -445,7 +463,7 @@ async function autoRunAll() {
   font-size: 11px;
 }
 
-.metric-label i {
+.telemetry-label i {
   width: 6px;
   height: 6px;
   display: block;
@@ -453,32 +471,57 @@ async function autoRunAll() {
   background: var(--accent);
 }
 
-.metric-label .dot-violet,
+.telemetry-label .dot-violet,
 .dot-violet {
   background: var(--ai);
 }
 
-.metric-label .dot-muted,
+.telemetry-label .dot-muted,
 .dot-muted {
-  background: var(--text-dim);
+  background: var(--text-faint);
 }
 
-.metric-label .dot-coral,
+.telemetry-label .dot-coral,
 .dot-coral {
   background: var(--risk);
 }
 
-.metric-card strong {
+.telemetry-cell strong {
+  margin: 9px 0 7px;
   color: var(--text);
-  font: 500 36px/1 var(--display);
-  letter-spacing: -0.06em;
+  font-size: 32px;
+  font-weight: 500;
+  letter-spacing: -0.05em;
+  line-height: 1;
 }
 
-.metric-note {
-  color: var(--text-dim);
+.telemetry-note {
+  color: var(--text-faint);
   font: 9px/1 var(--mono);
 }
 
+.telemetry-live {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 18px;
+  color: var(--accent);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  writing-mode: vertical-rl;
+  background: var(--accent-soft);
+}
+
+.telemetry-live i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(14, 116, 107, 0.14);
+  animation: pulse 1.8s ease-in-out infinite;
+}
+
+/* ── Notices ────────────────────────────────────────────────────────── */
 .notice {
   display: flex;
   align-items: center;
@@ -486,8 +529,9 @@ async function autoRunAll() {
   gap: 14px;
   margin-bottom: 26px;
   padding: 13px 15px;
-  border: 1px solid rgba(255, 149, 126, 0.55);
-  background: rgba(255, 149, 126, 0.05);
+  border: 1px solid rgba(208, 67, 58, 0.4);
+  border-radius: 8px;
+  background: var(--risk-soft);
 }
 
 .notice > div {
@@ -537,8 +581,9 @@ async function autoRunAll() {
   flex-wrap: wrap;
   gap: 3px;
   padding: 3px;
-  background: rgba(23, 26, 42, 0.72);
+  background: var(--panel-soft);
   border: 1px solid var(--border);
+  border-radius: 8px;
 }
 
 .filter-tab {
@@ -546,21 +591,22 @@ async function autoRunAll() {
   color: var(--text-dim);
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 4px;
+  border-radius: 6px;
   font: 10px/1 var(--mono);
 }
 
 .filter-tab:hover:not(:disabled) {
   color: var(--text);
-  background: rgba(82, 93, 134, 0.18);
-  border-color: transparent;
+  background: var(--panel);
+  border-color: var(--border);
   transform: none;
+  box-shadow: none;
 }
 
 .filter-tab.active {
-  color: var(--accent-ink);
-  background: var(--accent);
-  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: rgba(14, 116, 107, 0.3);
 }
 
 .filter-tab span {
@@ -585,17 +631,17 @@ async function autoRunAll() {
   overflow: hidden;
   color: var(--text);
   text-align: left;
-  background: rgba(23, 26, 42, 0.88);
+  background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 9px;
   cursor: pointer;
   transition: border-color 180ms ease, background 180ms ease, transform 180ms ease, box-shadow 180ms ease;
 }
 
 .challenge-card:hover {
-  background: rgba(30, 36, 56, 0.95);
+  background: var(--panel);
   border-color: var(--border-strong);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 10px 26px rgba(15, 22, 32, 0.08);
   transform: translateY(-2px);
 }
 
@@ -605,11 +651,11 @@ async function autoRunAll() {
 }
 
 .challenge-card.is-done {
-  opacity: 0.68;
+  opacity: 0.6;
 }
 
 .challenge-card.is-done:hover {
-  opacity: 0.9;
+  opacity: 0.85;
 }
 
 .card-spine {
@@ -618,7 +664,7 @@ async function autoRunAll() {
   bottom: 0;
   left: 0;
   width: 3px;
-  background: var(--text-dim);
+  background: var(--border-strong);
 }
 
 .card-spine.ready {
@@ -663,7 +709,7 @@ async function autoRunAll() {
   height: 5px;
   display: block;
   border-radius: 50%;
-  background: var(--text-dim);
+  background: var(--text-faint);
 }
 
 .challenge-status.ready {
@@ -672,7 +718,7 @@ async function autoRunAll() {
 
 .challenge-status.ready i {
   background: var(--accent);
-  box-shadow: 0 0 0 3px rgba(145, 226, 208, 0.1);
+  box-shadow: 0 0 0 3px rgba(14, 116, 107, 0.12);
 }
 
 .challenge-status.warming {
@@ -696,7 +742,7 @@ async function autoRunAll() {
 
 .challenge-meta {
   justify-content: flex-start;
-  color: var(--text-dim);
+  color: var(--text-faint);
   font-size: 9px;
 }
 
@@ -710,7 +756,8 @@ async function autoRunAll() {
   height: 4px;
   flex: 1;
   min-width: 6px;
-  background: #343a56;
+  border-radius: 2px;
+  background: var(--panel-soft);
 }
 
 .flag-track i.complete {
@@ -718,7 +765,7 @@ async function autoRunAll() {
 }
 
 .challenge-card-bottom {
-  color: var(--text-dim);
+  color: var(--text-faint);
   font-size: 9px;
 }
 
@@ -729,10 +776,10 @@ async function autoRunAll() {
 
 .challenge-skeleton {
   min-height: 182px;
-  background: linear-gradient(110deg, rgba(23, 26, 42, 0.8) 35%, rgba(52, 58, 86, 0.45) 50%, rgba(23, 26, 42, 0.8) 65%);
+  background: linear-gradient(110deg, var(--panel-soft) 35%, var(--border) 50%, var(--panel-soft) 65%);
   background-size: 200% 100%;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 9px;
   animation: skeleton 1.5s linear infinite;
 }
 
@@ -742,8 +789,9 @@ async function autoRunAll() {
   align-items: center;
   gap: 14px;
   padding: 22px;
-  background: rgba(23, 26, 42, 0.62);
+  background: var(--panel);
   border: 1px dashed var(--border-strong);
+  border-radius: 9px;
 }
 
 .empty-mark {
@@ -770,8 +818,9 @@ async function autoRunAll() {
 
 .automation-panel {
   padding: 17px;
-  background: rgba(23, 26, 42, 0.78);
+  background: var(--panel);
   border: 1px solid var(--border);
+  border-radius: 10px;
 }
 
 .automation-head {
@@ -782,13 +831,15 @@ async function autoRunAll() {
 .ai-state {
   padding: 5px 6px;
   color: var(--text-dim);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
   font: 9px/1 var(--mono);
 }
 
 .ai-state.ready {
   color: var(--ai);
-  border-color: rgba(139, 124, 255, 0.65);
+  border-color: rgba(91, 79, 209, 0.5);
+  background: var(--ai-soft);
 }
 
 .automation-status {
@@ -796,12 +847,14 @@ async function autoRunAll() {
   align-items: flex-start;
   gap: 10px;
   padding: 12px;
-  background: rgba(14, 17, 32, 0.72);
+  background: var(--panel-soft);
   border: 1px solid var(--border);
+  border-radius: 8px;
 }
 
 .automation-status.running {
-  border-color: rgba(139, 124, 255, 0.62);
+  border-color: rgba(91, 79, 209, 0.5);
+  background: var(--ai-soft);
 }
 
 .automation-pulse {
@@ -810,12 +863,12 @@ async function autoRunAll() {
   flex: 0 0 auto;
   margin-top: 3px;
   border-radius: 50%;
-  background: var(--text-dim);
+  background: var(--text-faint);
 }
 
 .automation-status.running .automation-pulse {
   background: var(--ai);
-  box-shadow: 0 0 0 4px rgba(139, 124, 255, 0.12);
+  box-shadow: 0 0 0 4px rgba(91, 79, 209, 0.14);
   animation: pulse 1.8s ease-in-out infinite;
 }
 
@@ -846,12 +899,12 @@ async function autoRunAll() {
   justify-content: space-between;
   gap: 10px;
   padding: 10px 0;
-  border-bottom: 1px solid rgba(52, 58, 86, 0.7);
+  border-bottom: 1px solid var(--border);
   font-size: 10px;
 }
 
 .queue-label {
-  color: var(--text-dim);
+  color: var(--text-faint);
   font-size: 8px;
 }
 
@@ -872,8 +925,9 @@ async function autoRunAll() {
   gap: 9px;
   margin-top: 16px;
   padding: 10px;
-  background: rgba(255, 149, 126, 0.05);
-  border: 1px solid rgba(255, 149, 126, 0.3);
+  background: var(--risk-soft);
+  border: 1px solid rgba(208, 67, 58, 0.22);
+  border-radius: 8px;
 }
 
 .callout-mark {
@@ -904,8 +958,9 @@ async function autoRunAll() {
 
 .automation-log {
   margin-top: 22px;
-  background: rgba(10, 12, 22, 0.84);
+  background: var(--panel);
   border: 1px solid var(--border);
+  border-radius: 10px;
 }
 
 .log-head {
@@ -935,7 +990,7 @@ async function autoRunAll() {
 .log-time {
   display: inline-block;
   min-width: 66px;
-  color: #65708f;
+  color: var(--text-faint);
 }
 
 .log-success {
@@ -956,7 +1011,7 @@ async function autoRunAll() {
 }
 
 .dim {
-  color: var(--text-dim);
+  color: var(--text-faint);
 }
 
 @keyframes page-in {
@@ -977,8 +1032,8 @@ async function autoRunAll() {
     grid-template-columns: minmax(0, 1fr) 240px;
   }
 
-  .metric-card strong {
-    font-size: 31px;
+  .telemetry-cell strong {
+    font-size: 27px;
   }
 }
 
@@ -991,8 +1046,20 @@ async function autoRunAll() {
     margin-top: 18px;
   }
 
-  .metric-strip {
+  .telemetry {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .telemetry-cell:nth-child(2) {
+    border-right: 0;
+  }
+
+  .telemetry-cell:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--border);
+  }
+
+  .telemetry-live {
+    display: none;
   }
 
   .dashboard-layout {
@@ -1044,6 +1111,7 @@ async function autoRunAll() {
 @media (prefers-reduced-motion: reduce) {
   .dashboard,
   .automation-status.running .automation-pulse,
+  .telemetry-live i,
   .challenge-skeleton {
     animation: none;
   }

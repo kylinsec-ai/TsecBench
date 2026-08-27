@@ -1,7 +1,7 @@
 import { reactive } from 'vue'
 import { api } from '../api/tsecbench'
 import { askLLM, extractFlags } from '../api/llm'
-import { settings } from '../api/settings'
+import { llmReady, settings } from '../api/settings'
 
 const SYSTEM_PROMPT = [
   '你是资深 CTF / 渗透测试解题助手。你只能基于给定的题目信息、目标地址和提示，分析题目并输出最有可能正确的 flag。',
@@ -140,6 +140,10 @@ export function createSolveSession(challenge) {
   }
 
   async function autoSolve() {
+    if (!llmReady()) {
+      log('error', 'LLM 未配置，请在 Settings 中填写 LLM Base URL / API Key / 模型')
+      return
+    }
     if (session.containerStatus !== 'available') {
       try {
         await start()

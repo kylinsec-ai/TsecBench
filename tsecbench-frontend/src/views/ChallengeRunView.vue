@@ -15,11 +15,14 @@ const error = ref('')
 const manualFlag = ref('')
 const logBox = ref(null)
 
+let initSeq = 0
 async function init() {
+  const seq = ++initSeq
   error.value = ''
   notFound.value = false
   try {
     const list = await api.listChallenges()
+    if (seq !== initSeq) return // 已有更新的 init 触发，丢弃过期结果
     const challenge = list.find((item) => item.unique_code === props.uniqueCode)
     if (!challenge) {
       notFound.value = true
@@ -27,6 +30,7 @@ async function init() {
     }
     controller.value = createSolveSession(challenge)
   } catch (err) {
+    if (seq !== initSeq) return
     error.value = `加载失败 [${err.code || err.status}]: ${err.message}`
   }
 }
@@ -92,16 +96,7 @@ async function submitManual() {
   const flag = manualFlag.value.trim()
   if (!flag || !controller.value) return
   try {
-    const res = await api.submitFlag(session.value.uniqueCode, flag)
-    session.value.submissions.push({ flag, correct: res.correct, awarded: res.awarded })
-    if (res.correct) {
-      session.value.correctCount = res.correct_flag_count
-      session.value.cumulativeScore = res.cumulative_score
-      if (res.correct_flag_count >= res.total_flag_count) session.value.completed = true
-      pushLog('success', `√ 正确: ${flag} (+${res.awarded}) 累计 ${res.cumulative_score}`)
-    } else {
-      pushLog('error', `× 错误: ${flag}`)
-    }
+    await controller.value.submitManual(flag)
     manualFlag.value = ''
   } catch (err) {
     pushLog('error', `提交失败 [${err.code || err.status}]: ${err.message}`)
@@ -274,7 +269,7 @@ async function submitManual() {
 
 .eyebrow {
   margin: 0;
-  color: var(--text-dim);
+  color: var(--text-faint);
   font-size: 9px;
   letter-spacing: 0.14em;
   line-height: 1.3;
@@ -306,6 +301,7 @@ async function submitManual() {
   color: var(--accent);
   border: 0;
   transform: none;
+  box-shadow: none;
 }
 
 .run-title-row {
@@ -331,7 +327,9 @@ async function submitManual() {
 .level-pill {
   padding: 5px 8px;
   color: var(--accent);
-  border: 1px solid rgba(145, 226, 208, 0.5);
+  border: 1px solid rgba(14, 116, 107, 0.4);
+  border-radius: 5px;
+  background: var(--accent-soft);
   font: 9px/1 var(--mono);
 }
 
@@ -346,15 +344,16 @@ async function submitManual() {
 .score-card {
   min-width: 160px;
   padding: 15px 17px;
-  background: rgba(23, 26, 42, 0.8);
+  background: var(--panel);
   border: 1px solid var(--border);
-  border-top-color: var(--ai);
+  border-top: 3px solid var(--ai);
+  border-radius: 9px;
 }
 
 .score-label,
 .score-detail {
   display: block;
-  color: var(--text-dim);
+  color: var(--text-faint);
   font-size: 9px;
 }
 
@@ -362,8 +361,12 @@ async function submitManual() {
   display: block;
   margin: 9px 0 7px;
   color: var(--text);
-  font: 500 34px/1 var(--display);
+  font: 500 34px/1 var(--mono);
   letter-spacing: -0.06em;
+}
+
+.score-detail {
+  color: var(--accent);
 }
 
 .runtime-banner {
@@ -372,9 +375,10 @@ async function submitManual() {
   align-items: center;
   gap: 18px;
   padding: 18px;
-  background: rgba(23, 26, 42, 0.82);
+  background: var(--panel);
   border: 1px solid var(--border);
-  border-left: 3px solid var(--text-dim);
+  border-left: 3px solid var(--border-strong);
+  border-radius: 9px;
 }
 
 .runtime-banner.tone-ready {
@@ -403,12 +407,12 @@ async function submitManual() {
   flex: 0 0 auto;
   margin-top: 3px;
   border-radius: 50%;
-  background: var(--text-dim);
+  background: var(--border-strong);
 }
 
 .tone-ready .state-dot {
   background: var(--accent);
-  box-shadow: 0 0 0 4px rgba(145, 226, 208, 0.12);
+  box-shadow: 0 0 0 4px rgba(14, 116, 107, 0.13);
 }
 
 .tone-warming .state-dot {
@@ -455,7 +459,7 @@ async function submitManual() {
 .target-empty {
   display: block;
   margin-top: 8px;
-  color: var(--text-dim);
+  color: var(--text-faint);
   font-size: 9px;
 }
 
@@ -480,7 +484,8 @@ async function submitManual() {
   height: 4px;
   margin-top: 11px;
   overflow: hidden;
-  background: #343a56;
+  border-radius: 2px;
+  background: var(--panel-soft);
 }
 
 .progress-track span {
@@ -493,7 +498,7 @@ async function submitManual() {
 .flag-summary-detail {
   display: block;
   margin-top: 7px;
-  color: var(--text-dim);
+  color: var(--text-faint);
   font-size: 9px;
 }
 
@@ -512,8 +517,9 @@ async function submitManual() {
 .action-rack,
 .history-panel,
 .log-panel {
-  background: rgba(23, 26, 42, 0.78);
+  background: var(--panel);
   border: 1px solid var(--border);
+  border-radius: 10px;
 }
 
 .action-rack {
@@ -541,7 +547,7 @@ async function submitManual() {
 .busy-state,
 .section-count,
 .log-live {
-  color: var(--text-dim);
+  color: var(--text-faint);
   font: 9px/1.4 var(--mono);
 }
 
@@ -565,12 +571,12 @@ async function submitManual() {
   padding: 11px 12px;
   color: var(--text);
   text-align: left;
-  background: rgba(14, 17, 32, 0.66);
+  background: var(--panel-soft);
   border-color: var(--border);
 }
 
 .action-button:hover:not(:disabled) {
-  background: rgba(30, 36, 56, 0.9);
+  background: var(--panel);
 }
 
 .action-button:first-child {
@@ -584,7 +590,9 @@ async function submitManual() {
   display: grid;
   place-items: center;
   color: var(--accent);
-  border: 1px solid rgba(145, 226, 208, 0.42);
+  border: 1px solid rgba(14, 116, 107, 0.4);
+  border-radius: 5px;
+  background: var(--accent-soft);
   font: 11px/1 var(--mono);
 }
 
@@ -600,7 +608,7 @@ async function submitManual() {
 
 .action-button small {
   margin-top: 4px;
-  color: var(--text-dim);
+  color: var(--text-faint);
   font: 8px/1 var(--mono);
 }
 
@@ -610,7 +618,8 @@ async function submitManual() {
 
 .action-hint .action-glyph {
   color: var(--warning);
-  border-color: rgba(241, 199, 124, 0.44);
+  border-color: rgba(168, 106, 18, 0.4);
+  background: var(--warning-soft);
 }
 
 .action-ai {
@@ -619,11 +628,12 @@ async function submitManual() {
 
 .action-ai .action-glyph {
   color: var(--ai);
-  border-color: rgba(139, 124, 255, 0.46);
+  border-color: rgba(91, 79, 209, 0.4);
+  background: var(--ai-soft);
 }
 
 .action-ai-strong {
-  background: rgba(139, 124, 255, 0.08);
+  background: var(--ai-soft);
 }
 
 .action-danger {
@@ -632,7 +642,8 @@ async function submitManual() {
 
 .action-danger .action-glyph {
   color: var(--risk);
-  border-color: rgba(255, 149, 126, 0.44);
+  border-color: rgba(208, 67, 58, 0.4);
+  background: var(--risk-soft);
 }
 
 .manual-submit {
@@ -651,7 +662,7 @@ async function submitManual() {
 }
 
 .manual-submit small {
-  color: var(--text-dim);
+  color: var(--text-faint);
   font-size: 10px;
 }
 
@@ -672,8 +683,9 @@ async function submitManual() {
   gap: 11px;
   margin-top: 12px;
   padding: 14px 16px;
-  background: rgba(241, 199, 124, 0.05);
-  border: 1px solid rgba(241, 199, 124, 0.46);
+  background: var(--warning-soft);
+  border: 1px solid rgba(168, 106, 18, 0.4);
+  border-radius: 8px;
 }
 
 .hint-mark {
@@ -715,12 +727,12 @@ async function submitManual() {
   align-items: center;
   gap: 9px;
   padding: 11px 0;
-  border-bottom: 1px solid rgba(52, 58, 86, 0.72);
+  border-bottom: 1px solid var(--border);
   font-size: 11px;
 }
 
 .submission-index {
-  color: var(--text-dim);
+  color: var(--text-faint);
   font-size: 9px;
 }
 
@@ -754,7 +766,6 @@ async function submitManual() {
   top: 94px;
   min-width: 0;
   padding: 18px;
-  background: rgba(10, 12, 22, 0.82);
 }
 
 .log-live {
@@ -767,8 +778,10 @@ async function submitManual() {
   max-height: 520px;
   overflow-y: auto;
   margin-top: 16px;
-  padding-top: 13px;
-  border-top: 1px solid var(--border);
+  padding: 13px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-soft);
   color: var(--text-dim);
   font-size: 10px;
   line-height: 1.8;
@@ -781,7 +794,7 @@ async function submitManual() {
 .log-time {
   display: inline-block;
   min-width: 61px;
-  color: #65708f;
+  color: var(--text-faint);
 }
 
 .log-success {
@@ -802,7 +815,7 @@ async function submitManual() {
 }
 
 .dim {
-  color: var(--text-dim);
+  color: var(--text-faint);
 }
 
 .run-error {
@@ -811,8 +824,9 @@ async function submitManual() {
   justify-content: space-between;
   gap: 16px;
   padding: 17px;
-  background: rgba(255, 149, 126, 0.05);
-  border: 1px solid rgba(255, 149, 126, 0.55);
+  background: var(--risk-soft);
+  border: 1px solid rgba(208, 67, 58, 0.4);
+  border-radius: 9px;
 }
 
 .run-error > div {

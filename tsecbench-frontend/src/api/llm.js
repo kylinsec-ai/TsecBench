@@ -54,7 +54,9 @@ export function extractFlags(text) {
   } catch {
     /* 不是纯 JSON，继续用正则 */
   }
-  const matches = [...new Set(trimmed.match(FLAG_RE) || [])]
+  const matches = [...new Set(trimmed.match(FLAG_RE) || [])].map((f) =>
+    f.replace(/^flag/i, 'flag')
+  )
   if (matches.length) return matches
   const candidates = []
   for (const line of trimmed.split(/\r?\n/)) {

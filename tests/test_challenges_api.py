@@ -227,3 +227,20 @@ def test_settings_environment_token_overrides_dotenv(tmp_path, monkeypatch):
 
     assert settings.benchmark_base_url == "https://benchmark.example.test"
     assert settings.benchmark_token == "exported-token"
+
+
+def test_frontend_serves_console_and_static_assets(tmp_path):
+    client = make_client(tmp_path)
+
+    index = client.get("/")
+    assert index.status_code == 200
+    assert "text/html" in index.headers["content-type"]
+    assert "TSecBench" in index.text
+
+    styles = client.get("/static/styles.css")
+    assert styles.status_code == 200
+    assert "text/css" in styles.headers["content-type"]
+
+    script = client.get("/static/app.js")
+    assert script.status_code == 200
+    assert "javascript" in script.headers["content-type"]

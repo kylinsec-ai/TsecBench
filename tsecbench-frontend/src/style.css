@@ -1,22 +1,37 @@
 :root {
-  --bg: #0e1120;
-  --bg-panel: #171a2a;
-  --bg-card: #1e2438;
-  --border: #343a56;
-  --border-strong: #525d86;
-  --text: #f2f0ea;
-  --text-dim: #9da6bd;
-  --accent: #91e2d0;
-  --accent-ink: #0e1120;
-  --ai: #8b7cff;
-  --risk: #ff957e;
-  --warning: #f1c77c;
-  --green: #91e2d0;
-  --yellow: #f1c77c;
-  --red: #ff957e;
-  --purple: #8b7cff;
+  /* Surface — cool pale "instrument bench" paper, not warm cream */
+  --bg: #f5f7fa;
+  --bg-soft: #edf1f6;
+  --panel: #ffffff;
+  --panel-soft: #eef2f7;
+
+  /* Hairlines */
+  --border: #e4e9f1;
+  --border-strong: #cdd6e3;
+
+  /* Ink */
+  --text: #0f1620;
+  --text-dim: #556072;
+  --text-faint: #8b94a6;
+
+  /* Signal hues — same semantic roles as the console, retuned for light contrast */
+  --accent: #0e746b;      /* live / ready / capture / primary */
+  --accent-strong: #0a5a53;
+  --accent-soft: #e2f0ee;
+  --accent-ink: #ffffff;
+  --ai: #5b4fd1;          /* assistant / automation */
+  --ai-soft: #eceafb;
+  --warning: #a86a12;     /* pending / warming */
+  --warning-soft: #faf0dc;
+  --risk: #d0433a;        /* danger / risk */
+  --risk-soft: #fcedea;
+  --green: #0e746b;
+  --yellow: #a86a12;
+  --red: #d0433a;
+  --purple: #5b4fd1;
+
   --display: 'Space Grotesk', 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
-  --body: 'Inter', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --body: 'Noto Sans SC', 'Inter', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   --mono: 'IBM Plex Mono', 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
 }
 
@@ -34,13 +49,15 @@ body {
   margin: 0;
   padding: 0;
   background:
-    radial-gradient(circle at 78% -12%, rgba(139, 124, 255, 0.13), transparent 31rem),
-    radial-gradient(circle at 18% 108%, rgba(145, 226, 208, 0.05), transparent 28rem),
+    radial-gradient(circle at 82% -14%, rgba(91, 79, 209, 0.06), transparent 30rem),
+    radial-gradient(circle at 12% 112%, rgba(14, 116, 107, 0.05), transparent 26rem),
     var(--bg);
   color: var(--text);
   font-family: var(--body);
   font-size: 14px;
   line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 #app {
@@ -64,21 +81,22 @@ select {
 
 button {
   color: var(--text);
-  background: var(--bg-card);
-  border: 1px solid var(--border);
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
   border-radius: 7px;
   padding: 9px 14px;
   cursor: pointer;
-  transition: border-color 180ms ease, background 180ms ease, color 180ms ease, transform 180ms ease;
+  transition: border-color 180ms ease, background 180ms ease, color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
 }
 
 button:hover:not(:disabled) {
   border-color: var(--accent);
+  box-shadow: 0 3px 10px rgba(15, 22, 32, 0.06);
   transform: translateY(-1px);
 }
 
 button:disabled {
-  opacity: 0.48;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
@@ -94,7 +112,12 @@ button.primary {
   color: var(--accent-ink);
   background: var(--accent);
   border-color: var(--accent);
-  font-weight: 700;
+  font-weight: 600;
+}
+
+button.primary:hover:not(:disabled) {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
 }
 
 button.ai {
@@ -103,10 +126,20 @@ button.ai {
   border-color: var(--ai);
 }
 
+button.ai:hover:not(:disabled) {
+  background: var(--ai);
+  box-shadow: 0 4px 14px rgba(91, 79, 209, 0.25);
+}
+
 button.danger {
   color: var(--risk);
-  border-color: rgba(255, 149, 126, 0.62);
+  border-color: rgba(208, 67, 58, 0.5);
   background: transparent;
+}
+
+button.danger:hover:not(:disabled) {
+  border-color: var(--risk);
+  background: var(--risk-soft);
 }
 
 button.small {
@@ -120,21 +153,22 @@ input[type='number'],
 select {
   width: 100%;
   color: var(--text);
-  background: rgba(14, 17, 32, 0.72);
-  border: 1px solid var(--border);
+  background: var(--panel-soft);
+  border: 1px solid var(--border-strong);
   border-radius: 7px;
   padding: 10px 11px;
 }
 
 input::placeholder {
-  color: #65708f;
+  color: var(--text-faint);
 }
 
 input:focus,
 select:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(145, 226, 208, 0.08);
+  background: var(--panel);
+  box-shadow: 0 0 0 3px rgba(14, 116, 107, 0.1);
 }
 
 .mono {
@@ -142,7 +176,7 @@ select:focus {
 }
 
 .panel {
-  background: var(--bg-panel);
+  background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 18px;
@@ -153,7 +187,7 @@ select:focus {
   align-items: center;
   min-height: 22px;
   padding: 3px 8px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: 999px;
   color: var(--text-dim);
   font: 10px/1 var(--mono);
@@ -162,17 +196,20 @@ select:focus {
 
 .badge.easy {
   color: var(--accent);
-  border-color: rgba(145, 226, 208, 0.58);
+  border-color: rgba(14, 116, 107, 0.4);
+  background: var(--accent-soft);
 }
 
 .badge.medium {
   color: var(--warning);
-  border-color: rgba(241, 199, 124, 0.58);
+  border-color: rgba(168, 106, 18, 0.4);
+  background: var(--warning-soft);
 }
 
 .badge.hard {
   color: var(--risk);
-  border-color: rgba(255, 149, 126, 0.58);
+  border-color: rgba(208, 67, 58, 0.4);
+  background: var(--risk-soft);
 }
 
 .status-available {

@@ -6,8 +6,8 @@ import { settingsReady } from './api/settings'
 const route = useRoute()
 
 const navItems = [
-  { path: '/', label: 'Dashboard', caption: '总览', index: '01' },
-  { path: '/settings', label: 'Settings', caption: '连接与 AI', index: '02' },
+  { path: '/', label: 'Dashboard', caption: '总览' },
+  { path: '/settings', label: 'Settings', caption: '连接与 AI' },
 ]
 
 const ready = computed(() => settingsReady())
@@ -42,7 +42,6 @@ const currentPage = computed(() => {
           }"
           :aria-current="item.path === '/' ? (route.path === '/' || isChallengeRoute ? 'page' : undefined) : route.path === item.path ? 'page' : undefined"
         >
-          <span class="nav-index mono">{{ item.index }}</span>
           <span class="nav-copy">
             <strong>{{ item.label }}</strong>
             <small>{{ item.caption }}</small>
@@ -102,7 +101,8 @@ const currentPage = computed(() => {
   display: flex;
   flex-direction: column;
   padding: 28px 18px 22px;
-  background: rgba(18, 21, 37, 0.94);
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(16px);
   border-right: 1px solid var(--border);
 }
 
@@ -125,6 +125,7 @@ const currentPage = computed(() => {
   color: var(--accent);
   font: 700 12px/1 var(--mono);
   letter-spacing: -0.08em;
+  background: var(--accent-soft);
 }
 
 .brand-mark-small {
@@ -142,7 +143,7 @@ const currentPage = computed(() => {
   position: absolute;
   top: 49px;
   left: 51px;
-  color: var(--text-dim);
+  color: var(--text-faint);
   font-size: 9px;
   letter-spacing: 0.08em;
 }
@@ -156,7 +157,7 @@ const currentPage = computed(() => {
 .nav-label,
 .connection-label {
   margin: 0 8px 10px;
-  color: var(--text-dim);
+  color: var(--text-faint);
   font-size: 9px;
   letter-spacing: 0.14em;
 }
@@ -168,11 +169,13 @@ const currentPage = computed(() => {
 
 .side-nav-link {
   display: grid;
-  grid-template-columns: 28px 1fr 20px;
+  grid-template-columns: 1fr 20px;
   align-items: center;
   min-height: 54px;
   padding: 7px 9px;
   border: 1px solid transparent;
+  border-left: 3px solid transparent;
+  border-radius: 6px;
   color: var(--text-dim);
   transition: border-color 180ms ease, background 180ms ease, color 180ms ease;
 }
@@ -180,22 +183,13 @@ const currentPage = computed(() => {
 .side-nav-link:hover,
 .side-nav-link.active {
   color: var(--text);
-  border-color: var(--border-strong);
-  background: linear-gradient(90deg, rgba(145, 226, 208, 0.08), rgba(145, 226, 208, 0));
+  border-color: var(--border);
+  background: var(--panel-soft);
 }
 
 .side-nav-link.active {
   border-left-color: var(--accent);
-}
-
-.nav-index {
-  color: var(--text-dim);
-  font-size: 10px;
-}
-
-.side-nav-link.active .nav-index,
-.side-nav-link.active .nav-arrow {
-  color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .nav-copy {
@@ -209,14 +203,22 @@ const currentPage = computed(() => {
 }
 
 .nav-copy small {
-  color: var(--text-dim);
+  color: var(--text-faint);
   font-size: 10px;
+}
+
+.side-nav-link.active .nav-copy small {
+  color: var(--accent);
 }
 
 .nav-arrow {
   color: var(--border-strong);
   font-size: 15px;
   text-align: right;
+}
+
+.side-nav-link.active .nav-arrow {
+  color: var(--accent);
 }
 
 .sidebar-spacer {
@@ -230,11 +232,13 @@ const currentPage = computed(() => {
   margin: 0 4px 10px;
   padding: 11px 10px;
   border: 1px solid var(--border);
-  background: rgba(14, 17, 32, 0.62);
+  border-radius: 8px;
+  background: var(--panel);
 }
 
 .connection-card.ready {
-  border-color: rgba(145, 226, 208, 0.38);
+  border-color: rgba(14, 116, 107, 0.4);
+  background: var(--accent-soft);
 }
 
 .connection-indicator,
@@ -245,13 +249,13 @@ const currentPage = computed(() => {
   display: block;
   border-radius: 50%;
   background: var(--risk);
-  box-shadow: 0 0 0 3px rgba(255, 149, 126, 0.1);
+  box-shadow: 0 0 0 3px rgba(208, 67, 58, 0.12);
 }
 
 .connection-card.ready .connection-indicator,
 .sync-state.ready i {
   background: var(--accent);
-  box-shadow: 0 0 0 3px rgba(145, 226, 208, 0.1);
+  box-shadow: 0 0 0 3px rgba(14, 116, 107, 0.14);
 }
 
 .connection-card strong {
@@ -275,7 +279,7 @@ const currentPage = computed(() => {
 
 .sidebar-meta {
   margin: 0 8px;
-  color: var(--text-dim);
+  color: var(--text-faint);
   font-size: 8px;
   line-height: 1.7;
   letter-spacing: 0.08em;
@@ -295,8 +299,8 @@ const currentPage = computed(() => {
   justify-content: space-between;
   gap: 20px;
   padding: 14px 40px;
-  border-bottom: 1px solid rgba(52, 58, 86, 0.72);
-  background: rgba(14, 17, 32, 0.88);
+  border-bottom: 1px solid rgba(228, 233, 241, 0.9);
+  background: rgba(245, 247, 250, 0.82);
   backdrop-filter: blur(18px);
 }
 
@@ -306,7 +310,7 @@ const currentPage = computed(() => {
 }
 
 .topbar-kicker {
-  color: var(--text-dim);
+  color: var(--text-faint);
   font-size: 9px;
   letter-spacing: 0.13em;
 }
@@ -339,7 +343,8 @@ const currentPage = computed(() => {
   place-items: center;
   width: 30px;
   height: 30px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
   color: var(--text-dim);
   font-size: 17px;
   transition: border-color 180ms ease, color 180ms ease;
@@ -396,7 +401,7 @@ const currentPage = computed(() => {
 
   .side-nav-link {
     flex: 1;
-    grid-template-columns: 24px 1fr;
+    grid-template-columns: 1fr;
     min-height: 44px;
     padding: 6px 8px;
   }

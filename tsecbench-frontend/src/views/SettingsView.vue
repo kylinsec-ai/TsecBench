@@ -135,7 +135,7 @@ async function testLLM() {
 
 .eyebrow {
   margin: 0;
-  color: var(--text-dim);
+  color: var(--text-faint);
   font-size: 9px;
   letter-spacing: 0.14em;
   line-height: 1.3;
@@ -169,11 +169,14 @@ async function testLLM() {
   gap: 10px;
   min-width: 132px;
   padding: 11px 12px;
-  border: 1px solid rgba(255, 149, 126, 0.45);
+  border: 1px solid rgba(208, 67, 58, 0.4);
+  border-radius: 8px;
+  background: var(--risk-soft);
 }
 
 .settings-status.ready {
-  border-color: rgba(145, 226, 208, 0.44);
+  border-color: rgba(14, 116, 107, 0.4);
+  background: var(--accent-soft);
 }
 
 .status-dot {
@@ -186,7 +189,7 @@ async function testLLM() {
 
 .settings-status.ready .status-dot {
   background: var(--accent);
-  box-shadow: 0 0 0 4px rgba(145, 226, 208, 0.1);
+  box-shadow: 0 0 0 4px rgba(14, 116, 107, 0.12);
 }
 
 .settings-status div {
@@ -195,7 +198,7 @@ async function testLLM() {
 }
 
 .settings-status span {
-  color: var(--text-dim);
+  color: var(--text-faint);
   font-size: 8px;
 }
 
@@ -208,7 +211,7 @@ async function testLLM() {
 .settings-rule {
   height: 1px;
   margin: 28px 0 18px;
-  background: linear-gradient(90deg, var(--border-strong), rgba(82, 93, 134, 0.05));
+  background: linear-gradient(90deg, var(--border-strong), rgba(205, 214, 227, 0.08));
 }
 
 .settings-grid {
@@ -219,21 +222,22 @@ async function testLLM() {
 
 .settings-card {
   padding: 19px;
-  background: rgba(23, 26, 42, 0.78);
+  background: var(--panel);
   border: 1px solid var(--border);
+  border-radius: 10px;
 }
 
 .settings-platform {
-  border-top-color: var(--accent);
+  border-top: 3px solid var(--accent);
 }
 
 .settings-ai {
-  border-top-color: var(--ai);
+  border-top: 3px solid var(--ai);
 }
 
 .settings-behavior {
   grid-column: 1 / -1;
-  border-top-color: var(--warning);
+  border-top: 3px solid var(--warning);
 }
 
 .card-heading {
@@ -253,18 +257,21 @@ async function testLLM() {
 .card-state {
   padding: 5px 7px;
   color: var(--text-dim);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
   font: 8px/1 var(--mono);
 }
 
 .card-state.ready {
   color: var(--accent);
-  border-color: rgba(145, 226, 208, 0.5);
+  border-color: rgba(14, 116, 107, 0.4);
+  background: var(--accent-soft);
 }
 
 .card-state.ai-state.ready {
   color: var(--ai);
-  border-color: rgba(139, 124, 255, 0.52);
+  border-color: rgba(91, 79, 209, 0.5);
+  background: var(--ai-soft);
 }
 
 .card-description {
@@ -294,7 +301,7 @@ async function testLLM() {
 
 .field label span,
 .field-label small {
-  color: #65708f;
+  color: var(--text-faint);
   font: 9px/1 var(--body);
   letter-spacing: 0;
 }
@@ -353,7 +360,7 @@ async function testLLM() {
   height: 20px;
   flex: 0 0 auto;
   display: block;
-  background: #343a56;
+  background: var(--panel-soft);
   border: 1px solid var(--border-strong);
   border-radius: 999px;
   transition: background 180ms ease, border-color 180ms ease;
@@ -366,13 +373,13 @@ async function testLLM() {
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: var(--text-dim);
+  background: var(--text-faint);
   content: '';
   transition: transform 180ms ease, background 180ms ease;
 }
 
 .toggle-row input:checked + i {
-  background: rgba(145, 226, 208, 0.2);
+  background: var(--accent-soft);
   border-color: var(--accent);
 }
 
@@ -398,6 +405,7 @@ async function testLLM() {
   margin-top: 14px;
   padding: 12px 14px;
   border: 1px solid var(--border);
+  border-radius: 8px;
   color: var(--text-dim);
   font: 11px/1.5 var(--mono);
 }
@@ -415,12 +423,14 @@ async function testLLM() {
 
 .result-success {
   color: var(--accent);
-  border-color: rgba(145, 226, 208, 0.55);
+  border-color: rgba(14, 116, 107, 0.45);
+  background: var(--accent-soft);
 }
 
 .result-error {
   color: var(--risk);
-  border-color: rgba(255, 149, 126, 0.55);
+  border-color: rgba(208, 67, 58, 0.45);
+  background: var(--risk-soft);
 }
 
 .result-info {

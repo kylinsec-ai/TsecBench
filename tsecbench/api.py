@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 
+import httpx
 from fastapi import Depends, FastAPI, Header, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .config import Settings
@@ -150,5 +154,46 @@ def create_app(
         token: str = Depends(authenticated_token),
     ) -> dict:
         return service.close(token, unique_code)
+
+    # ---- Frontend (Range Console) ----
+    static_dir = Path(__file__).resolve().parent / "static"
+
+    @app.get("/", include_in_schema=False)
+    def index() -> HTMLResponse:
+        html = (static_dir / "index.html").read_text(encoding="utf-8")
+        console_config = json.dumps(
+            {"baseUrl": settings.benchmark_base_url, "token": settings.benchmark_token},
+            ensure_ascii=False,
+        )
+        return HTMLResponse(html.replace("__TSECBENCH_CONFIG__", console_config))
+
+    @app.api_route("/benchmark/{path:path}", methods=["GET", "POST", "OPTIONS"], include_in_schema=False)
+    async def benchmark_proxy(path: str, request: Request) -> Response:
+        """Forward the console to the configured remote benchmark API.
+
+        The browser calls this same-origin path; the proxy forwards to
+        BENCHMARK_BASE_URL injecting BENCHMARK_TOKEN, dodging the remote's
+        lack of CORS support.
+        """
+        if not settings.benchmark_base_url:
+            return _error_response(APIError(400, "config_error", "BENCHMARK_BASE_URL 未配置"))
+        body = await request.body()
+        base = settings.benchmark_base_url.rstrip("/") + "/openapi/v1/challenges"
+        target = f"{base}/{path}" if path else base
+        headers = {"Content-Type": request.headers.get("content-type", "application/json")}
+        token = settings.benchmark_token or request.headers.get("BENCHMARK_TOKEN")
+        if token:
+            headers["BENCHMARK_TOKEN"] = token
+        async with httpx.AsyncClient(timeout=30, follow_redirects=False) as client:
+            upstream = await client.request(request.method, target, headers=headers, content=body or None)
+        media = upstream.headers.get("content-type", "application/json")
+        return Response(content=upstream.content, status_code=upstream.status_code, media_type=media)
+
+    @app.api_route("/benchmark", methods=["GET", "POST", "OPTIONS"], include_in_schema=False)
+    async def benchmark_proxy_root(request: Request) -> Response:
+        # 空路径（题目列表）直接命中代理，避免 Starlette 追加斜杠的 307 重定向
+        return await benchmark_proxy("", request)
+
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
     return app
