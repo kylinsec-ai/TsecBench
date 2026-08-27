@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi.testclient import TestClient
 
 from tsecbench.api import create_app
+from tsecbench.config import Settings
 
 
 TOKEN = "task-token"
@@ -195,3 +196,34 @@ def test_expired_task_is_rejected_and_state_persists(tmp_path):
     challenge = restarted_client.get("/openapi/v1/challenges", headers=HEADERS).json()[0]
     assert challenge["correct_flag_count"] == 1
     assert challenge["container_status"] == "available"
+
+def test_settings_loads_benchmark_values_from_dotenv(tmp_path, monkeypatch):
+    dotenv_file = tmp_path / ".env"
+    dotenv_file.write_text(
+        "BENCHMARK_BASE_URL=https://benchmark.example.test\n"
+        "BENCHMARK_TOKEN=file-token\n",
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("BENCHMARK_BASE_URL", raising=False)
+    monkeypatch.delenv("BENCHMARK_TOKEN", raising=False)
+
+    settings = Settings.from_env(env_file=dotenv_file)
+
+    assert settings.benchmark_base_url == "https://benchmark.example.test"
+    assert settings.benchmark_token == "file-token"
+
+
+def test_settings_environment_token_overrides_dotenv(tmp_path, monkeypatch):
+    dotenv_file = tmp_path / ".env"
+    dotenv_file.write_text(
+        "BENCHMARK_BASE_URL=https://benchmark.example.test\n"
+        "BENCHMARK_TOKEN=file-token\n",
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("BENCHMARK_BASE_URL", raising=False)
+    monkeypatch.setenv("BENCHMARK_TOKEN", "exported-token")
+
+    settings = Settings.from_env(env_file=dotenv_file)
+
+    assert settings.benchmark_base_url == "https://benchmark.example.test"
+    assert settings.benchmark_token == "exported-token"

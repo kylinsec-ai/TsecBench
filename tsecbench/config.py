@@ -8,6 +8,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
+
 from .models import ConfigurationError, TaskDefinition, parse_task_config
 
 
@@ -16,6 +18,7 @@ class Settings:
     database_path: str = "./data/tsecbench.sqlite3"
     config_path: str | None = None
     inline_config: str | None = None
+    benchmark_base_url: str | None = None
     benchmark_token: str | None = None
     max_active_challenges: int = 3
     provisioner: str = "static"
@@ -23,10 +26,16 @@ class Settings:
     port: int = 8000
 
     @classmethod
-    def from_env(cls) -> "Settings":
+    def from_env(cls, env_file: str | Path | None = None) -> Settings:
+        dotenv_path = Path(env_file) if env_file is not None else Path(__file__).resolve().parent.parent / ".env"
+        if dotenv_path.is_file():
+            load_dotenv(dotenv_path=dotenv_path, override=False)
+
         database_path = str(Path(os.getenv("TSECBENCH_DB_PATH", os.getenv("TSECBENCH_DATABASE", cls.database_path))).expanduser())
         config_path = os.getenv("TSECBENCH_CONFIG")
         inline_config = os.getenv("TSECBENCH_TASKS_JSON")
+        base_url_value = os.getenv("BENCHMARK_BASE_URL", "").strip()
+        base_url = base_url_value or None
         token_value = os.getenv("BENCHMARK_TOKEN", "").strip()
         token = token_value or None
         try:
@@ -42,6 +51,7 @@ class Settings:
             database_path=database_path,
             config_path=config_path,
             inline_config=inline_config,
+            benchmark_base_url=base_url,
             benchmark_token=token,
             max_active_challenges=max_active,
             provisioner=os.getenv("TSECBENCH_PROVISIONER", "static").lower(),
