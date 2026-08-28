@@ -60,10 +60,38 @@ CHALLENGES = [
 ]
 
 
+# 进程内已分配端口：_free_port 是 bind-即-释放 的 TOCTOU 分配，两个服务器先后
+# 调用时内核可能把刚释放的端口再次发给第二个调用（EADDRINUSE）。进程内去重
+# 消除了该竞态；跨进程撞端口的概率可忽略。
+_USED_PORTS: set[int] = set()
+
+
 def _free_port() -> int:
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
+    for _ in range(200):
+        with socket.socket() as sock:
+            sock.bind(("127.0.0.1", 0))
+            port = sock.getsockname()[1]
+        if port not in _USED_PORTS:
+            _USED_PORTS.add(port)
+            return port
+    raise RuntimeError("no unique free port available")
+
+
+# 上游独有目录：只有 /benchmark 代理能拿到这第 4 题——控制台本地数据库只有 3 题。
+# 代理模式测试据此断言请求确实经过了代理（卡片数 4、上游独有提示文本）。
+UPSTREAM_CHALLENGES = CHALLENGES + [
+    {
+        "unique_code": "extra_proxy_04",
+        "description": "仅存在于上游平台的题目，用于证明请求经过 /benchmark 代理",
+        "difficulty": "easy",
+        "level": 1,
+        "total_score": 50,
+        "hint": "上游独有的提示",
+        "hint_cost_radio": 0.1,
+        "container_addr": [],
+        "flags": [{"value": "flag{extra_proxy}", "score": 50}],
+    },
+]
 
 
 def _wait_until_ready(url: str, proc: subprocess.Popen[bytes], timeout: float = 30) -> None:
@@ -107,9 +135,13 @@ def _launch_server(
             "TSECBENCH_CONFIG": str(tasks_file),
             "HOST": "127.0.0.1",
             "PORT": str(port),
-            # 隔离本地 e2e：禁用远程 .env 配置，让前端走本地 API
+            # 隔离本地 e2e：禁用远程 .env 配置，让前端走本地 API；
+            # 同时钉死 provisioner 与活跃上限，防止宿主机导出值（如
+            # TSECBENCH_PROVISIONER=docker）泄漏进被测服务器
             "BENCHMARK_BASE_URL": "",
             "BENCHMARK_TOKEN": "",
+            "TSECBENCH_PROVISIONER": "static",
+            "TSECBENCH_MAX_ACTIVE_CHALLENGES": "3",
             **(env_overrides or {}),
         }
     )
@@ -156,10 +188,20 @@ def proxy_server_url(tmp_path) -> str:
     The console's BENCHMARK_BASE_URL points at a second local server playing
     the remote platform, so list/start/hint/close run through the /benchmark
     proxy — the deployment mode this feature exists for.
+
+    The upstream gets a SUPERSET catalog (UPSTREAM_CHALLENGES) that the
+    console's own local DB does not have: if the SPA ever fell back to the
+    local API, the card count and hint assertions in the proxy test would
+    fail, so the test genuinely exercises the proxy.
     """
+    upstream_tasks = tmp_path / "upstream_tasks.json"
+    upstream_tasks.write_text(json.dumps({"token": TOKEN, "challenges": UPSTREAM_CHALLENGES}), encoding="utf-8")
     upstream_url, upstream = _launch_server(
         tmp_path,
-        env_overrides={"TSECBENCH_DB_PATH": str(tmp_path / "upstream.sqlite3")},
+        env_overrides={
+            "TSECBENCH_DB_PATH": str(tmp_path / "upstream.sqlite3"),
+            "TSECBENCH_CONFIG": str(upstream_tasks),
+        },
         wait=False,
     )
     console_url, console = _launch_server(
@@ -171,9 +213,10 @@ def proxy_server_url(tmp_path) -> str:
         },
         wait=False,
     )
-    _wait_until_ready(upstream_url, upstream)
-    _wait_until_ready(console_url, console)
+    # 等待必须放进 try 里：任一服务器启动失败时，finally 也要停掉另一个，避免泄漏子进程
     try:
+        _wait_until_ready(upstream_url, upstream)
+        _wait_until_ready(console_url, console)
         yield console_url
     finally:
         _stop_server(console)

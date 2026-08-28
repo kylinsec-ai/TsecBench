@@ -10,9 +10,13 @@ import re
 
 from playwright.sync_api import Page, expect
 
-from conftest import TOKEN  # 与 conftest 中种子目录的令牌保持一致
+try:
+    # pytest 默认 prepend 模式：e2e/ 在 sys.path 上，conftest 以顶层模块导入
+    from conftest import CHALLENGES, TOKEN
+except ModuleNotFoundError:  # pragma: no cover — --import-mode=importlib 等运行方式
+    from e2e.conftest import CHALLENGES, TOKEN
 
-WEB = "web_sql_injection_01"
+WEB = CHALLENGES[0]["unique_code"]
 
 
 def connect(page: Page, server_url: str) -> None:
@@ -105,12 +109,24 @@ def test_proxy_mode_start_hint_close(page: Page, proxy_server_url: str) -> None:
     Regression for the proxy dropping ?unique_code=, which broke start/close/
     hint against a remote BENCHMARK_BASE_URL. In proxy mode the page embeds
     the token and auto-connects, so the gate never appears.
+
+    The upstream seeds a 4th challenge (extra_proxy_04) the console's own DB
+    does not have: seeing 4 cards and the upstream-only hint proves the
+    requests really went through the /benchmark proxy rather than the
+    console's local API.
     """
     page.goto(proxy_server_url + "/")
     page.wait_for_selector(".card")
 
-    expect(page.locator(".card")).to_have_count(3)
-    expect(page.locator("#statScore")).to_have_text("0 / 450")
+    expect(page.locator(".card")).to_have_count(4)
+    expect(page.locator("#statScore")).to_have_text("0 / 500")
+
+    # 上游独有题目：只可能来自代理转发，本地回退会只剩 3 张卡片
+    extra_card = page.locator(".card", has_text="extra_proxy_04")
+    expect(extra_card).to_be_visible()
+    extra_card.locator("button[data-act=hint]").click()
+    expect(page.locator("#hintBody")).to_have_text("上游独有的提示")
+    page.keyboard.press("Escape")
 
     web_card(page).locator("button[data-act=start]").click()
     page.wait_for_selector(".addr-strip")
