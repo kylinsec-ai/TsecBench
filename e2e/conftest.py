@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 
 import pytest
-import requests
+import httpx
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TOKEN = "e2e-token"
@@ -73,37 +73,44 @@ def _wait_until_ready(url: str, proc: subprocess.Popen[bytes], timeout: float = 
             output = proc.stdout.read().decode(errors="replace") if proc.stdout else ""
             pytest.fail(f"server exited early with code {proc.returncode}:\n{output}")
         try:
-            if requests.get(url + "/", timeout=1).status_code == 200:
+            if httpx.get(url + "/", timeout=1).status_code == 200:
                 return
-        except requests.RequestException:
+        except httpx.HTTPError:
             pass
         time.sleep(0.2)
     proc.terminate()
     pytest.fail("server did not become ready in time")
 
 
-@pytest.fixture
-def server_url(tmp_path) -> str:
-    """Boot a fresh server per test (fresh DB) and yield its base URL.
+def _launch_server(
+    tmp_path: Path,
+    *,
+    env_overrides: dict[str, str] | None = None,
+    wait: bool = True,
+) -> tuple[str, subprocess.Popen[bytes]]:
+    """Boot a real server (main.py) against an isolated DB and seeded catalog.
 
-    Function scope gives each test an isolated database, so container state and
-    submitted flags from one test never leak into the next.
+    Returns (base_url, process). The tasks file is written once per tmp_path so
+    multiple servers in one test share the same catalog. With wait=False the
+    caller boots several servers first and waits on all of them afterwards,
+    so startup windows overlap.
     """
     tasks_file = tmp_path / "tasks.json"
-    tasks_file.write_text(json.dumps({"token": TOKEN, "challenges": CHALLENGES}), encoding="utf-8")
-    db_path = tmp_path / "e2e.sqlite3"
+    if not tasks_file.exists():
+        tasks_file.write_text(json.dumps({"token": TOKEN, "challenges": CHALLENGES}), encoding="utf-8")
 
     port = _free_port()
     env = dict(os.environ)
     env.update(
         {
-            "TSECBENCH_DB_PATH": str(db_path),
+            "TSECBENCH_DB_PATH": str(tmp_path / f"e2e-{port}.sqlite3"),
             "TSECBENCH_CONFIG": str(tasks_file),
             "HOST": "127.0.0.1",
             "PORT": str(port),
             # 隔离本地 e2e：禁用远程 .env 配置，让前端走本地 API
             "BENCHMARK_BASE_URL": "",
             "BENCHMARK_TOKEN": "",
+            **(env_overrides or {}),
         }
     )
     proc = subprocess.Popen(
@@ -115,12 +122,59 @@ def server_url(tmp_path) -> str:
     )
 
     url = f"http://127.0.0.1:{port}"
-    _wait_until_ready(url, proc)
+    if wait:
+        _wait_until_ready(url, proc)
+    return url, proc
+
+
+def _stop_server(proc: subprocess.Popen[bytes]) -> None:
+    proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+
+
+@pytest.fixture
+def server_url(tmp_path) -> str:
+    """Boot a fresh server per test (fresh DB) and yield its base URL.
+
+    Function scope gives each test an isolated database, so container state and
+    submitted flags from one test never leak into the next.
+    """
+    url, proc = _launch_server(tmp_path)
     try:
         yield url
     finally:
-        proc.terminate()
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
+        _stop_server(proc)
+
+
+@pytest.fixture
+def proxy_server_url(tmp_path) -> str:
+    """Boot an upstream API plus a console server proxying to it.
+
+    The console's BENCHMARK_BASE_URL points at a second local server playing
+    the remote platform, so list/start/hint/close run through the /benchmark
+    proxy — the deployment mode this feature exists for.
+    """
+    upstream_url, upstream = _launch_server(
+        tmp_path,
+        env_overrides={"TSECBENCH_DB_PATH": str(tmp_path / "upstream.sqlite3")},
+        wait=False,
+    )
+    console_url, console = _launch_server(
+        tmp_path,
+        env_overrides={
+            "TSECBENCH_DB_PATH": str(tmp_path / "console.sqlite3"),
+            "BENCHMARK_BASE_URL": upstream_url,
+            "BENCHMARK_TOKEN": TOKEN,
+        },
+        wait=False,
+    )
+    _wait_until_ready(upstream_url, upstream)
+    _wait_until_ready(console_url, console)
+    try:
+        yield console_url
+    finally:
+        _stop_server(console)
+        _stop_server(upstream)

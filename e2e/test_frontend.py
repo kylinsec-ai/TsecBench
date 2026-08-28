@@ -10,7 +10,8 @@ import re
 
 from playwright.sync_api import Page, expect
 
-TOKEN = "e2e-token"
+from conftest import TOKEN  # 与 conftest 中种子目录的令牌保持一致
+
 WEB = "web_sql_injection_01"
 
 
@@ -95,6 +96,33 @@ def test_close_releases_instance(page: Page, server_url: str) -> None:
     expect(web_card(page).locator(".status")).to_have_text("已停止")
     expect(web_card(page).locator(".addr-strip")).to_have_count(0)
     expect(web_card(page).locator("button[data-act=start]")).to_be_visible()
+    expect(page.locator("#statLive")).to_have_text("0")
+
+
+def test_proxy_mode_start_hint_close(page: Page, proxy_server_url: str) -> None:
+    """The console proxied to a remote platform: query strings must survive.
+
+    Regression for the proxy dropping ?unique_code=, which broke start/close/
+    hint against a remote BENCHMARK_BASE_URL. In proxy mode the page embeds
+    the token and auto-connects, so the gate never appears.
+    """
+    page.goto(proxy_server_url + "/")
+    page.wait_for_selector(".card")
+
+    expect(page.locator(".card")).to_have_count(3)
+    expect(page.locator("#statScore")).to_have_text("0 / 450")
+
+    web_card(page).locator("button[data-act=start]").click()
+    page.wait_for_selector(".addr-strip")
+    expect(page.locator("#statLive")).to_have_text("1")
+
+    web_card(page).locator("button[data-act=hint]").click()
+    expect(page.locator("#hintModal")).to_be_visible()
+    expect(page.locator("#hintBody")).to_have_text("尝试在登录表单的用户名字段使用单引号测试注入点")
+    page.keyboard.press("Escape")
+
+    web_card(page).locator("button[data-act=close]").click()
+    expect(web_card(page).locator(".status")).to_have_text("已停止")
     expect(page.locator("#statLive")).to_have_text("0")
 
 

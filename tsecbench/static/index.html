@@ -57,7 +57,7 @@
         <div class="gate-card">
           <div class="gate-glyph" aria-hidden="true">●</div>
           <h1 class="gate-title">连接跑分任务</h1>
-          <p class="gate-text">输入平台下发的 <code class="mono">BENCHMARK_TOKEN</code>，加载该任务下的全部题目与作答进度。令牌仅保存在当前浏览器会话。</p>
+          <p class="gate-text">输入平台下发的 <code class="mono">BENCHMARK_TOKEN</code>，加载该任务下的全部题目与作答进度。令牌保存在当前浏览器会话；若平台配置了远程代理，请求由服务端注入令牌，控制台须仅对受信任网络开放。</p>
           <form class="gate-form" id="gateForm">
             <input class="token-input mono" id="tokenInput" type="text" inputmode="text"
                    autocomplete="off" spellcheck="false"

@@ -8,7 +8,7 @@ export default defineConfig({
     host: '0.0.0.0',
     proxy: {
       '/openapi': {
-        target: process.env.TSECBENCH_PROXY_TARGET || 'https://tsecbench.zc.tencent.com',
+        target: process.env.TSECBENCH_PROXY_TARGET || 'http://127.0.0.1:8000',
         changeOrigin: true,
       },
     },

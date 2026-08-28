@@ -16,11 +16,14 @@ The Docker Compose stack is a separate Kali headless workspace for challenge ope
 - `models.py` normalizes and validates task/challenge/flag input. Flag values are stored as SHA-256 digests, not plaintext. `config.py` loads task JSON from a file or inline environment value and can inject the benchmark token into a bare challenge catalog.
 - Business failures use `APIError` helpers and stable `{code, message, detail}` responses. Unexpected API exceptions are converted to a generic 500 response.
 - Lifecycle state is coordinated across service and store: reserve a stopped challenge, provision it, mark it available with runtime addresses, and clear runtime state on close. Preserve these transitions and their error rollback behavior when changing code.
+- The app also serves the Range Console: `/` returns the static SPA in `tsecbench/static/` with the console config embedded, and `/benchmark/{path}` is a same-origin proxy forwarding to the configured `BENCHMARK_BASE_URL` `/openapi/v1/challenges*` routes while injecting `BENCHMARK_TOKEN` server-side (the remote platform lacks CORS). The proxy forwards query strings verbatim and returns 502 on upstream failures.
 
 ## Key Directories
 
-- `tsecbench/` — application source: API, settings, domain models, service rules, SQLite persistence, error types, and provisioners.
-- `tests/` — pytest tests; currently centered on `test_challenges_api.py`.
+- `tsecbench/` — application source: API, settings, domain models, service rules, SQLite persistence, error types, provisioners, and the served console SPA (`tsecbench/static/`).
+- `tests/` — pytest unit tests; currently centered on `test_challenges_api.py`.
+- `e2e/` — Playwright end-to-end tests that boot real server processes and drive Chromium (`pytest e2e`).
+- `tsecbench-frontend/` — Vue 3 source for the console; development-only, build output is ignored.
 - `data/` — local SQLite runtime data; ignored by Git.
 - Repository root — `main.py`, dependency files, Docker configuration, `.env.example`, and integration documentation. There is no repository `scripts/` directory.
 
@@ -32,10 +35,17 @@ Install the development dependencies from the repository root:
 python -m pip install -r requirements-dev.txt
 ```
 
-Run the complete test suite:
+Run the complete unit test suite (default `pytest` run, `testpaths = tests`):
 
 ```bash
 python -m pytest -q
+```
+
+Run the end-to-end console suite (boots real servers and Chromium; install browsers once):
+
+```bash
+python -m playwright install chromium
+python -m pytest e2e
 ```
 
 Run the API directly using `HOST`/`PORT` settings:
@@ -78,7 +88,8 @@ Do not use `docker compose down -v`; it deletes the persistent `kali-data` volum
 ## Important Files
 
 - `main.py` — module-level ASGI app and direct Uvicorn runner.
-- `tsecbench/api.py` — FastAPI factory, request/response models, routes, and exception handlers.
+- `tsecbench/static/` — served Range Console SPA (`index.html`, `app.js`, `styles.css`).
+- `tsecbench/api.py` — FastAPI factory, request/response models, routes, exception handlers, and the `/benchmark` proxy.
 - `tsecbench/config.py` — `Settings.from_env`, dotenv loading, numeric validation, and task loading.
 - `tsecbench/models.py` — configuration normalization, domain dataclasses, digest handling, and score calculation.
 - `tsecbench/service.py` — authenticated challenge business rules and lifecycle state machine.
@@ -86,6 +97,8 @@ Do not use `docker compose down -v`; it deletes the persistent `kali-data` volum
 - `tsecbench/provisioner.py` — `StaticProvisioner`, `DockerProvisioner`, and the provisioner protocol.
 - `tsecbench/errors.py` — stable API error types and constructors.
 - `tests/test_challenges_api.py` — endpoint lifecycle, persistence, and dotenv precedence coverage.
+- `e2e/conftest.py` / `e2e/test_frontend.py` — real-server Playwright fixtures and console e2e tests (including proxy mode).
+- `pytest.ini` — pytest root configuration (`testpaths = tests`).
 - `requirements.txt` / `requirements-dev.txt` — runtime dependencies and the pip-style development include.
 - `Dockerfile` / `docker-compose.yaml` — Kali workspace image and lifecycle.
 - `CHALLENGES_API.md` — benchmark caller workflow, routes, headers, errors, VPN, and scoring rules.
@@ -94,7 +107,7 @@ Do not use `docker compose down -v`; it deletes the persistent `kali-data` volum
 ## Runtime/Tooling Preferences
 
 - Use Python with a repository-local virtual environment (`.venv` is the local convention). The current environment is Python 3.13, but no Python version is pinned in repository metadata.
-- Use pip requirement files; there is no lockfile or alternate package manager configuration. Runtime dependencies are FastAPI, Uvicorn, Pydantic, and `python-dotenv`; development dependencies include pytest and HTTPX.
+- Use pip requirement files; there is no lockfile or alternate package manager configuration. Runtime dependencies are FastAPI, Uvicorn, Pydantic, `python-dotenv`, and HTTPX (used by the proxy); development dependencies include pytest, Playwright, and pytest-playwright.
 - `Settings.from_env()` loads the repository-root `.env` when present with `override=False`, so explicitly exported environment variables win. Important settings include `BENCHMARK_BASE_URL`, `BENCHMARK_TOKEN`, `TSECBENCH_DB_PATH`/`TSECBENCH_DATABASE`, `TSECBENCH_CONFIG`, `TSECBENCH_TASKS_JSON`, `TSECBENCH_MAX_ACTIVE_CHALLENGES`, `TSECBENCH_PROVISIONER`, `HOST`, and `PORT`.
 - Docker tooling requires Docker and Docker Compose v2. The image is based on `kalilinux/kali-rolling`, installs `kali-linux-headless`, and idles with `tail -f /dev/null`; application dependencies are installed in the host/virtualenv workflow, not by the Dockerfile.
 - Treat the FastAPI process and the Compose Kali container as distinct runtime pieces. Compose has no API port mapping or environment injection.
@@ -102,8 +115,9 @@ Do not use `docker compose down -v`; it deletes the persistent `kali-data` volum
 
 ## Testing & QA
 
-- Tests use pytest, direct `test_*` functions, bare assertions, and FastAPI `TestClient`; there is no `conftest.py`, pytest configuration, marker set, coverage threshold, or CI workflow.
+- Unit tests use pytest, direct `test_*` functions, bare assertions, and FastAPI `TestClient`; `pytest.ini` limits the default `pytest` run to `tests/`. There is no marker set, coverage threshold, or CI workflow.
 - `tests/test_challenges_api.py` uses `tmp_path` for isolated SQLite databases and injects `create_app(..., database_path=..., tasks=...)`. Dotenv tests use `monkeypatch` to isolate environment variables and temporary dotenv files.
-- Existing behavior coverage includes authentication and response shape, start/hint/submit/close lifecycle, hint score discounts, duplicate submissions, validation and unknown challenges, active limits, unavailable resources, expiry, restart persistence, dotenv loading, and exported-variable precedence.
+- `e2e/` tests use pytest-playwright and boot real `main.py` subprocesses against isolated databases (`e2e/conftest.py`); `proxy_server_url` boots an upstream API plus a console proxying to it to exercise the `/benchmark` proxy. Run with `python -m pytest e2e` (requires `python -m playwright install chromium`).
+- Existing unit-test coverage includes authentication and response shape, start/hint/submit/close lifecycle, hint score discounts, duplicate submissions, validation and unknown challenges, active limits, unavailable resources, expiry, restart persistence, dotenv loading, and exported-variable precedence.
 - For changes to service or persistence logic, test observable transitions, rollback/error codes, scoring boundaries, duplicate protection, and persistence across app construction. For settings changes, use fake temporary dotenv contents and never write or assert against the real local token.
-- The suite does not exercise real Uvicorn startup, external benchmark calls, VPN access, concurrent clients, or Docker provisioning. Run a local server smoke check separately when changing startup/configuration behavior; do not make external benchmark calls as part of tests.
+- Neither suite makes external benchmark calls, needs VPN access, or uses Docker provisioning. Run a local server smoke check separately when changing startup/configuration behavior.

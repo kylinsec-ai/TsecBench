@@ -29,7 +29,6 @@ const state = {
   challenges: [],
   earned: new Map(), // unique_code -> 累计得分（来自 submit 回执）
   filter: "all",
-  view: "tasks",
   pollTimer: null,
 };
 
@@ -51,8 +50,8 @@ function toast(message, kind = "info") {
 
 async function api(path, options = {}) {
   const res = await fetch(API + path, {
-    headers: { "BENCHMARK_TOKEN": state.token, ...(options.body ? { "Content-Type": "application/json" } : {}) },
     ...options,
+    headers: { "BENCHMARK_TOKEN": state.token, ...(options.body ? { "Content-Type": "application/json" } : {}), ...(options.headers || {}) },
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -73,6 +72,11 @@ function isRunning(c) {
   return ["pending", "available", "stop_pending"].includes(c.container_status);
 }
 
+// 只在存在瞬时状态（启动/停止中）时轮询；available 只能由用户操作改变
+function isTransient(c) {
+  return ["pending", "stop_pending"].includes(c.container_status);
+}
+
 async function copyText(text, btn) {
   try {
     await navigator.clipboard.writeText(text);
@@ -87,7 +91,6 @@ async function copyText(text, btn) {
 /* ---------- 视图切换 ---------- */
 
 function setView(view) {
-  state.view = view;
   document.querySelectorAll(".nav-item").forEach((n) => n.classList.toggle("is-active", n.dataset.nav === view));
   if (view === "score") renderScore();
   const scoreEl = $("#scoreView");
@@ -138,11 +141,21 @@ function render() {
   startPollingIfPending();
 }
 
+function summarize() {
+  let total = 0, earned = 0, done = 0, live = 0, scored = 0;
+  for (const c of state.challenges) {
+    total += c.total_score;
+    const e = state.earned.get(c.unique_code) || 0;
+    earned += e;
+    if (c.is_completed) done++;
+    if (isRunning(c)) live++;
+    if (e > 0) scored++;
+  }
+  return { total, earned, done, live, scored };
+}
+
 function renderSidebar() {
-  const total = state.challenges.reduce((s, c) => s + c.total_score, 0);
-  const earned = state.challenges.reduce((s, c) => s + (state.earned.get(c.unique_code) || 0), 0);
-  const done = state.challenges.filter((c) => c.is_completed).length;
-  const live = state.challenges.filter(isRunning).length;
+  const { total, earned, done, live } = summarize();
   $("#statScore").textContent = earned || (total ? `0 / ${total}` : "—");
   $("#statDone").textContent = done;
   $("#statLive").textContent = live;
@@ -164,9 +177,16 @@ function cardActions(c) {
   return b.join("");
 }
 
+let lastCardsSig = "";
+
 function renderCards() {
   const wrap = $("#cards");
   const list = filteredChallenges();
+
+  // 轮询返回的数据未变时跳过整块重建，避免销毁/重建节点并重放入场动画
+  const sig = JSON.stringify(list);
+  if (sig === lastCardsSig) return;
+  lastCardsSig = sig;
 
   if (!list.length) {
     wrap.innerHTML = `<div class="empty">
@@ -179,7 +199,7 @@ function renderCards() {
   wrap.innerHTML = list.map((c) => {
     const pct = c.flag_count ? Math.round((c.correct_flag_count / c.flag_count) * 100) : 0;
     const live = c.container_status === "available";
-    const pending = ["pending", "stop_pending"].includes(c.container_status);
+    const pending = isTransient(c);
     const addrStrip = c.container_addr && c.container_addr.length
       ? `<div class="addr-strip">
           <span class="live-dot" aria-hidden="true"></span>
@@ -221,10 +241,9 @@ function renderScore() {
     view.id = "scoreView";
     $("#dash").appendChild(view);
   }
+  const { total, earned, scored } = summarize();
   const byDiff = {};
   state.challenges.forEach((c) => { byDiff[c.difficulty] = byDiff[c.difficulty] || []; byDiff[c.difficulty].push(c); });
-  const total = state.challenges.reduce((s, c) => s + c.total_score, 0);
-  const earned = state.challenges.reduce((s, c) => s + (state.earned.get(c.unique_code) || 0), 0);
   const rows = Object.entries(byDiff).map(([d, list]) => {
     const done = list.filter((c) => c.is_completed).length;
     return `<div class="score-row">
@@ -237,7 +256,7 @@ function renderScore() {
     <div class="score-hero">
       <p class="dash-eyebrow">CURRENT SCORE</p>
       <p class="score-total">${earned}<span class="score-total-of">/ ${total}</span></p>
-      <p class="score-sub">已从 ${state.challenges.filter((c) => (state.earned.get(c.unique_code) || 0) > 0).length} 题获得得分</p>
+      <p class="score-sub">已从 ${scored} 题获得得分</p>
     </div>
     <div class="score-break">${rows}</div>
   </div>`;
@@ -265,7 +284,7 @@ async function fetchHint(code) {
 
 async function submitFlag(code, flag) {
   const r = await api("/submit", { method: "POST", body: JSON.stringify({ unique_code: code, flag }) });
-  state.earned.set(code, (state.earned.get(code) || 0) + (r.correct ? r.awarded : 0));
+  if (r.correct) state.earned.set(code, r.cumulative_score); // 以服务端累计为准，避免客户端累加漂移
   const box = $("#submitResult");
   box.classList.remove("ok", "err");
   if (r.correct) {
@@ -297,7 +316,7 @@ async function refresh(silent = false) {
 }
 
 function startPollingIfPending() {
-  const pending = state.challenges.some(isRunning);
+  const pending = state.challenges.some(isTransient);
   if (pending && !state.pollTimer) {
     state.pollTimer = setInterval(() => refresh(true), 2500);
   } else if (!pending && state.pollTimer) {

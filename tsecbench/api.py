@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -87,7 +88,15 @@ def create_app(
         normalized_tasks = parse_task_config(tasks)
     service.seed(normalized_tasks)
 
-    app = FastAPI(title="TSecBench Platform", version="1.0.0")
+    # 复用同一个客户端：代理模式下控制台每 2.5s 轮询一次，连接池复用免去每次握手
+    proxy_client = httpx.AsyncClient(timeout=30, follow_redirects=False)
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI):
+        yield
+        await proxy_client.aclose()
+
+    app = FastAPI(title="TSecBench Platform", version="1.0.0", lifespan=lifespan)
     app.state.store = store
     app.state.service = service
     app.state.settings = settings
@@ -157,15 +166,22 @@ def create_app(
 
     # ---- Frontend (Range Console) ----
     static_dir = Path(__file__).resolve().parent / "static"
-
-    @app.get("/", include_in_schema=False)
-    def index() -> HTMLResponse:
-        html = (static_dir / "index.html").read_text(encoding="utf-8")
-        console_config = json.dumps(
+    index_html = (static_dir / "index.html").read_text(encoding="utf-8")
+    console_config = (
+        json.dumps(
             {"baseUrl": settings.benchmark_base_url, "token": settings.benchmark_token},
             ensure_ascii=False,
         )
-        return HTMLResponse(html.replace("__TSECBENCH_CONFIG__", console_config))
+        # 防止配置中嵌入 `</script>` 时逃逸出内联脚本
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+    )
+    # 配置与模板在启动时即固定，组装一次避免每个请求重复替换
+    console_page = index_html.replace("__TSECBENCH_CONFIG__", console_config)
+
+    @app.get("/", include_in_schema=False)
+    def index() -> HTMLResponse:
+        return HTMLResponse(console_page)
 
     @app.api_route("/benchmark/{path:path}", methods=["GET", "POST", "OPTIONS"], include_in_schema=False)
     async def benchmark_proxy(path: str, request: Request) -> Response:
@@ -180,12 +196,16 @@ def create_app(
         body = await request.body()
         base = settings.benchmark_base_url.rstrip("/") + "/openapi/v1/challenges"
         target = f"{base}/{path}" if path else base
+        if request.url.query:
+            target = f"{target}?{request.url.query}"
         headers = {"Content-Type": request.headers.get("content-type", "application/json")}
         token = settings.benchmark_token or request.headers.get("BENCHMARK_TOKEN")
         if token:
             headers["BENCHMARK_TOKEN"] = token
-        async with httpx.AsyncClient(timeout=30, follow_redirects=False) as client:
-            upstream = await client.request(request.method, target, headers=headers, content=body or None)
+        try:
+            upstream = await proxy_client.request(request.method, target, headers=headers, content=body or None)
+        except httpx.HTTPError:
+            return _error_response(APIError(502, "upstream_error", "上游服务不可达"))
         media = upstream.headers.get("content-type", "application/json")
         return Response(content=upstream.content, status_code=upstream.status_code, media_type=media)
 
