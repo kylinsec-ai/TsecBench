@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 
 import pytest
-import httpx
+import requests
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TOKEN = "e2e-token"
@@ -60,38 +60,10 @@ CHALLENGES = [
 ]
 
 
-# 进程内已分配端口：_free_port 是 bind-即-释放 的 TOCTOU 分配，两个服务器先后
-# 调用时内核可能把刚释放的端口再次发给第二个调用（EADDRINUSE）。进程内去重
-# 消除了该竞态；跨进程撞端口的概率可忽略。
-_USED_PORTS: set[int] = set()
-
-
 def _free_port() -> int:
-    for _ in range(200):
-        with socket.socket() as sock:
-            sock.bind(("127.0.0.1", 0))
-            port = sock.getsockname()[1]
-        if port not in _USED_PORTS:
-            _USED_PORTS.add(port)
-            return port
-    raise RuntimeError("no unique free port available")
-
-
-# 上游独有目录：只有 /benchmark 代理能拿到这第 4 题——控制台本地数据库只有 3 题。
-# 代理模式测试据此断言请求确实经过了代理（卡片数 4、上游独有提示文本）。
-UPSTREAM_CHALLENGES = CHALLENGES + [
-    {
-        "unique_code": "extra_proxy_04",
-        "description": "仅存在于上游平台的题目，用于证明请求经过 /benchmark 代理",
-        "difficulty": "easy",
-        "level": 1,
-        "total_score": 50,
-        "hint": "上游独有的提示",
-        "hint_cost_radio": 0.1,
-        "container_addr": [],
-        "flags": [{"value": "flag{extra_proxy}", "score": 50}],
-    },
-]
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
 
 
 def _wait_until_ready(url: str, proc: subprocess.Popen[bytes], timeout: float = 30) -> None:
@@ -101,48 +73,37 @@ def _wait_until_ready(url: str, proc: subprocess.Popen[bytes], timeout: float = 
             output = proc.stdout.read().decode(errors="replace") if proc.stdout else ""
             pytest.fail(f"server exited early with code {proc.returncode}:\n{output}")
         try:
-            if httpx.get(url + "/", timeout=1).status_code == 200:
+            if requests.get(url + "/", timeout=1).status_code == 200:
                 return
-        except httpx.HTTPError:
+        except requests.RequestException:
             pass
         time.sleep(0.2)
     proc.terminate()
     pytest.fail("server did not become ready in time")
 
 
-def _launch_server(
-    tmp_path: Path,
-    *,
-    env_overrides: dict[str, str] | None = None,
-    wait: bool = True,
-) -> tuple[str, subprocess.Popen[bytes]]:
-    """Boot a real server (main.py) against an isolated DB and seeded catalog.
+@pytest.fixture
+def server_url(tmp_path) -> str:
+    """Boot a fresh server per test (fresh DB) and yield its base URL.
 
-    Returns (base_url, process). The tasks file is written once per tmp_path so
-    multiple servers in one test share the same catalog. With wait=False the
-    caller boots several servers first and waits on all of them afterwards,
-    so startup windows overlap.
+    Function scope gives each test an isolated database, so container state and
+    submitted flags from one test never leak into the next.
     """
     tasks_file = tmp_path / "tasks.json"
-    if not tasks_file.exists():
-        tasks_file.write_text(json.dumps({"token": TOKEN, "challenges": CHALLENGES}), encoding="utf-8")
+    tasks_file.write_text(json.dumps({"token": TOKEN, "challenges": CHALLENGES}), encoding="utf-8")
+    db_path = tmp_path / "e2e.sqlite3"
 
     port = _free_port()
     env = dict(os.environ)
     env.update(
         {
-            "TSECBENCH_DB_PATH": str(tmp_path / f"e2e-{port}.sqlite3"),
+            "TSECBENCH_DB_PATH": str(db_path),
             "TSECBENCH_CONFIG": str(tasks_file),
             "HOST": "127.0.0.1",
             "PORT": str(port),
-            # 隔离本地 e2e：禁用远程 .env 配置，让前端走本地 API；
-            # 同时钉死 provisioner 与活跃上限，防止宿主机导出值（如
-            # TSECBENCH_PROVISIONER=docker）泄漏进被测服务器
+            # 隔离本地 e2e：禁用远程 .env 配置，让前端走本地 API
             "BENCHMARK_BASE_URL": "",
             "BENCHMARK_TOKEN": "",
-            "TSECBENCH_PROVISIONER": "static",
-            "TSECBENCH_MAX_ACTIVE_CHALLENGES": "3",
-            **(env_overrides or {}),
         }
     )
     proc = subprocess.Popen(
@@ -154,70 +115,12 @@ def _launch_server(
     )
 
     url = f"http://127.0.0.1:{port}"
-    if wait:
-        _wait_until_ready(url, proc)
-    return url, proc
-
-
-def _stop_server(proc: subprocess.Popen[bytes]) -> None:
-    proc.terminate()
-    try:
-        proc.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-
-
-@pytest.fixture
-def server_url(tmp_path) -> str:
-    """Boot a fresh server per test (fresh DB) and yield its base URL.
-
-    Function scope gives each test an isolated database, so container state and
-    submitted flags from one test never leak into the next.
-    """
-    url, proc = _launch_server(tmp_path)
+    _wait_until_ready(url, proc)
     try:
         yield url
     finally:
-        _stop_server(proc)
-
-
-@pytest.fixture
-def proxy_server_url(tmp_path) -> str:
-    """Boot an upstream API plus a console server proxying to it.
-
-    The console's BENCHMARK_BASE_URL points at a second local server playing
-    the remote platform, so list/start/hint/close run through the /benchmark
-    proxy — the deployment mode this feature exists for.
-
-    The upstream gets a SUPERSET catalog (UPSTREAM_CHALLENGES) that the
-    console's own local DB does not have: if the SPA ever fell back to the
-    local API, the card count and hint assertions in the proxy test would
-    fail, so the test genuinely exercises the proxy.
-    """
-    upstream_tasks = tmp_path / "upstream_tasks.json"
-    upstream_tasks.write_text(json.dumps({"token": TOKEN, "challenges": UPSTREAM_CHALLENGES}), encoding="utf-8")
-    upstream_url, upstream = _launch_server(
-        tmp_path,
-        env_overrides={
-            "TSECBENCH_DB_PATH": str(tmp_path / "upstream.sqlite3"),
-            "TSECBENCH_CONFIG": str(upstream_tasks),
-        },
-        wait=False,
-    )
-    console_url, console = _launch_server(
-        tmp_path,
-        env_overrides={
-            "TSECBENCH_DB_PATH": str(tmp_path / "console.sqlite3"),
-            "BENCHMARK_BASE_URL": upstream_url,
-            "BENCHMARK_TOKEN": TOKEN,
-        },
-        wait=False,
-    )
-    # 等待必须放进 try 里：任一服务器启动失败时，finally 也要停掉另一个，避免泄漏子进程
-    try:
-        _wait_until_ready(upstream_url, upstream)
-        _wait_until_ready(console_url, console)
-        yield console_url
-    finally:
-        _stop_server(console)
-        _stop_server(upstream)
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()

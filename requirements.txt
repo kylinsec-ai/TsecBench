@@ -1,5 +1,3 @@
-fastapi>=0.115,<1
-uvicorn[standard]>=0.30,<1
-pydantic>=2.7,<3
-python-dotenv>=1.0,<2
-httpx>=0.27,<1
+# TsecBench 平台接入层适配器 - Python 依赖
+# 注: kali-headless 镜像已自带 requests/httpx/pyyaml/dotenv
+openai>=1.30.0,<2.0.0

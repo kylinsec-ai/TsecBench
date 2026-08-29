@@ -136,21 +136,6 @@ See [`CHALLENGES_API.md`](CHALLENGES_API.md) for complete request/response and e
 
 完整的请求、响应和错误约定请参阅 [`CHALLENGES_API.md`](CHALLENGES_API.md)。
 
-## Range Console / 靶场控制台
-
-The same process serves a browser console: `GET /` returns the SPA in `tsecbench/static/`, and the console calls the challenge API through the same origin.
-
-同一进程还提供浏览器控制台：`GET /` 返回 `tsecbench/static/` 中的单页应用，控制台通过同源路径调用题目 API。
-
-- **Local mode / 本地模式**: when `BENCHMARK_BASE_URL` is unset, the console calls `/openapi/v1/challenges*` directly and uses the `BENCHMARK_TOKEN` typed at the gate (kept in `sessionStorage`).
-- **Proxy mode / 代理模式**: when `BENCHMARK_BASE_URL` is set, the console calls `/benchmark/{path}`; the server forwards to `<base>/openapi/v1/challenges/{path}` injecting `BENCHMARK_TOKEN` server-side. This bypasses the remote platform's missing CORS support.
-
-  When `BENCHMARK_BASE_URL` 未设置时，控制台直接调用 `/openapi/v1/challenges*`，使用登录时输入的 `BENCHMARK_TOKEN`（保存在 `sessionStorage`）。设置 `BENCHMARK_BASE_URL` 后，控制台改走 `/benchmark/{path}`，由服务端转发到 `<base>/openapi/v1/challenges/{path}` 并注入 `BENCHMARK_TOKEN`，从而绕开远端平台缺失的 CORS 支持。
-
-> **Security boundary / 安全边界**: the console page embeds `BENCHMARK_TOKEN` into the served HTML, and the `/benchmark` proxy authenticates any caller against the platform with that token. Anyone with network access to the console can read the token and drive the full API (start containers, submit flags). Expose the console only on a trusted, network-restricted range; do not bind it to a public interface. Proxy mode forwards query strings and returns `502 upstream_error` if the upstream is unreachable.
-
-> **安全边界**：控制台页面会把 `BENCHMARK_TOKEN` 嵌入到返回的 HTML 中，`/benchmark` 代理也会用该 token 为任意调用者鉴权。任何能访问控制台的网络主体都能读取 token 并驱动完整 API（启动容器、提交 flag）。控制台只能在受信任且受限的网络范围内暴露，请勿绑定到公网接口。代理模式会透传查询参数；上游不可达时返回 `502 upstream_error`。
-
 ## Kali workspace / Kali 工作区
 
 The Compose service builds and runs an interactive Kali headless container with the persistent `kali-data` volume mounted at `/workspace`.
@@ -187,30 +172,17 @@ Compose 文件不会发布 API 端口、注入跑分环境变量或启动 Uvicor
 
 ## Development and testing / 开发与测试
 
-Run the unit test suite from the repository root (`pytest.ini` restricts the default run to `tests/`):
+Run the current test suite from the repository root:
 
-在仓库根目录运行单元测试套件（`pytest.ini` 将默认运行范围限定为 `tests/`）：
+在仓库根目录运行当前测试套件：
 
 ```bash
 python -m pytest -q
 ```
 
-Run the end-to-end console suite (boots real `main.py` server processes and Chromium; install browsers once):
+Tests use pytest and FastAPI `TestClient`. Endpoint tests create isolated SQLite databases with `tmp_path`; settings tests use temporary dotenv files and `monkeypatch`. Coverage includes authentication, challenge lifecycle, scoring, duplicate submissions, validation, resource limits, expiry, restart persistence, dotenv loading, and environment precedence.
 
-运行控制台端到端测试（会启动真实的 `main.py` 服务进程与 Chromium；首次需安装浏览器）：
-
-```bash
-python -m playwright install chromium
-python -m pytest e2e
-```
-
-The e2e suite drives the served console in both local mode and proxy mode (`proxy_server_url` boots an upstream API plus a console proxying to it), exercising list/start/hint/submit/close against real SQLite databases.
-
-e2e 套件以本地模式与代理模式两种方式驱动控制台（`proxy_server_url` 会启动一个上游 API 和一个代理到它的控制台），针对真实 SQLite 数据库验证列表/启动/提示/提交/关闭全流程。
-
-Tests use pytest and FastAPI `TestClient` for units and pytest-playwright for e2e. Unit tests create isolated SQLite databases with `tmp_path`; settings tests use temporary dotenv files and `monkeypatch`. Coverage includes authentication, challenge lifecycle, scoring, duplicate submissions, validation, resource limits, expiry, restart persistence, dotenv loading, and environment precedence.
-
-单元测试使用 pytest 和 FastAPI `TestClient`，e2e 使用 pytest-playwright。单元测试通过 `tmp_path` 创建隔离的 SQLite 数据库；设置测试使用临时 dotenv 文件和 `monkeypatch`。覆盖内容包括认证、题目生命周期、计分、重复提交、参数校验、资源限制、过期任务、重启持久化、dotenv 加载和环境变量优先级。
+测试使用 pytest 和 FastAPI `TestClient`。接口测试通过 `tmp_path` 创建隔离的 SQLite 数据库；设置测试使用临时 dotenv 文件和 `monkeypatch`。覆盖内容包括认证、题目生命周期、计分、重复提交、参数校验、资源限制、过期任务、重启持久化、dotenv 加载和环境变量优先级。
 
 There is no configured linter, formatter, coverage threshold, Makefile, lockfile, or CI workflow. Keep changes focused and add behavior tests for new observable contracts.
 
@@ -219,15 +191,12 @@ There is no configured linter, formatter, coverage threshold, Makefile, lockfile
 ## Project layout / 项目结构
 
 - `main.py` — ASGI application export and direct Uvicorn runner / ASGI 应用导出和直接 Uvicorn 启动入口。
-- `tsecbench/api.py` — FastAPI factory, routes, request/response models, exception handlers, and the `/benchmark` proxy / FastAPI 工厂、路由、请求响应模型、异常处理器和 `/benchmark` 代理。
-- `tsecbench/static/` — served Range Console SPA (`index.html`, `app.js`, `styles.css`) / 提供的靶场控制台单页应用。
+- `tsecbench/api.py` — FastAPI factory, routes, request/response models, and exception handlers / FastAPI 工厂、路由、请求响应模型和异常处理器。
 - `tsecbench/config.py` — environment loading, validation, and task catalog loading / 环境加载、校验和任务目录加载。
 - `tsecbench/models.py` — task/challenge/flag normalization and scoring helpers / 任务、题目、flag 规范化和计分辅助函数。
 - `tsecbench/service.py` — authenticated business rules and lifecycle transitions / 认证业务规则和生命周期状态转换。
 - `tsecbench/store.py` — SQLite schema, transactions, persistence, and startup recovery / SQLite 模式、事务、持久化和启动恢复。
 - `tsecbench/provisioner.py` — static and Docker challenge provisioning / static 和 Docker 题目配置器。
 - `tests/test_challenges_api.py` — endpoint and settings behavior tests / 接口和设置行为测试。
-- `e2e/` — Playwright console tests booting real server processes / 启动真实服务进程的 Playwright 控制台测试。
-- `tsecbench-frontend/` — Vue 3 console source (dev-only; build output ignored) / Vue 3 控制台源码（仅开发用，构建产物被忽略）。
 - `.env.example` — safe configuration template; copy to local `.env` / 安全配置模板，复制为本地 `.env`。
 - `Dockerfile` and `docker-compose.yaml` — Kali workspace image and lifecycle / Kali 工作区镜像和生命周期配置。

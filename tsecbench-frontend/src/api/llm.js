@@ -2,6 +2,16 @@ import { settings } from './settings'
 
 export async function askLLM(messages) {
   const url = String(settings.llmBaseUrl || '').replace(/\/+$/, '') + '/chat/completions'
+  const body = {
+    model: settings.llmModel,
+    messages,
+    temperature: 0.3,
+    max_tokens: 4096,
+  }
+  if (settings.llmThinking) {
+    body.thinking = { type: 'enabled' }
+    if (settings.llmReasoningEffort) body.reasoning_effort = settings.llmReasoningEffort
+  }
   let response
   try {
     response = await fetch(url, {
@@ -10,12 +20,7 @@ export async function askLLM(messages) {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${settings.llmApiKey}`,
       },
-      body: JSON.stringify({
-        model: settings.llmModel,
-        messages,
-        temperature: 0.3,
-        max_tokens: 4096,
-      }),
+      body: JSON.stringify(body),
     })
   } catch (err) {
     throw new Error(`LLM 请求失败: ${err.message}`)

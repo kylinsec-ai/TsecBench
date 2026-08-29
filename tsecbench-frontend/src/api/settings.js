@@ -1,13 +1,15 @@
 import { reactive, watch } from 'vue'
 
-const STORAGE_KEY = 'tsecbench.settings.v1'
+const STORAGE_KEY = 'tsecbench.settings.v2'
 
 const defaults = {
   baseUrl: 'http://localhost:5173',
   token: '',
-  llmBaseUrl: 'https://api.deepseek.com/v1',
+  llmBaseUrl: 'https://api.deepseek.com',
   llmApiKey: '',
-  llmModel: 'deepseek-chat',
+  llmModel: 'deepseek-v4-flash',
+  llmThinking: false,
+  llmReasoningEffort: 'medium',
   useHint: false,
   maxRounds: 6,
   autoClose: true,

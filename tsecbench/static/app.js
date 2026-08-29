@@ -29,6 +29,7 @@ const state = {
   challenges: [],
   earned: new Map(), // unique_code -> 累计得分（来自 submit 回执）
   filter: "all",
+  view: "tasks",
   pollTimer: null,
 };
 
@@ -50,8 +51,8 @@ function toast(message, kind = "info") {
 
 async function api(path, options = {}) {
   const res = await fetch(API + path, {
+    headers: { "BENCHMARK_TOKEN": state.token, ...(options.body ? { "Content-Type": "application/json" } : {}) },
     ...options,
-    headers: { "BENCHMARK_TOKEN": state.token, ...(options.body ? { "Content-Type": "application/json" } : {}), ...(options.headers || {}) },
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -72,13 +73,6 @@ function isRunning(c) {
   return ["pending", "available", "stop_pending"].includes(c.container_status);
 }
 
-// 瞬时状态（启动/停止中）。注意：available 并不只受本控制台操作影响——
-// 任务过期/删除（服务端 404）与代理模式下远端平台的状态变更都可能发生，
-// 因此轮询闸门必须覆盖 available（见 startPollingIfPending）。
-function isTransient(c) {
-  return isRunning(c) && c.container_status !== "available";
-}
-
 async function copyText(text, btn) {
   try {
     await navigator.clipboard.writeText(text);
@@ -93,6 +87,7 @@ async function copyText(text, btn) {
 /* ---------- 视图切换 ---------- */
 
 function setView(view) {
+  state.view = view;
   document.querySelectorAll(".nav-item").forEach((n) => n.classList.toggle("is-active", n.dataset.nav === view));
   if (view === "score") renderScore();
   const scoreEl = $("#scoreView");
@@ -143,21 +138,11 @@ function render() {
   startPollingIfPending();
 }
 
-function summarize() {
-  let total = 0, earned = 0, done = 0, live = 0, scored = 0;
-  for (const c of state.challenges) {
-    total += c.total_score;
-    const e = state.earned.get(c.unique_code) || 0;
-    earned += e;
-    if (c.is_completed) done++;
-    if (isRunning(c)) live++;
-    if (e > 0) scored++;
-  }
-  return { total, earned, done, live, scored };
-}
-
 function renderSidebar() {
-  const { total, earned, done, live } = summarize();
+  const total = state.challenges.reduce((s, c) => s + c.total_score, 0);
+  const earned = state.challenges.reduce((s, c) => s + (state.earned.get(c.unique_code) || 0), 0);
+  const done = state.challenges.filter((c) => c.is_completed).length;
+  const live = state.challenges.filter(isRunning).length;
   $("#statScore").textContent = earned || (total ? `0 / ${total}` : "—");
   $("#statDone").textContent = done;
   $("#statLive").textContent = live;
@@ -179,17 +164,9 @@ function cardActions(c) {
   return b.join("");
 }
 
-let lastCardsSig = "";
-
 function renderCards() {
   const wrap = $("#cards");
   const list = filteredChallenges();
-
-  // 轮询返回的数据未变时跳过整块重建，避免销毁/重建节点并重放入场动画。
-  // 空态文案依赖 state.challenges.length，必须纳入签名，否则任务清空后不会重建。
-  const sig = JSON.stringify(list) + "|" + state.challenges.length;
-  if (sig === lastCardsSig) return;
-  lastCardsSig = sig;
 
   if (!list.length) {
     wrap.innerHTML = `<div class="empty">
@@ -202,7 +179,7 @@ function renderCards() {
   wrap.innerHTML = list.map((c) => {
     const pct = c.flag_count ? Math.round((c.correct_flag_count / c.flag_count) * 100) : 0;
     const live = c.container_status === "available";
-    const pending = isTransient(c);
+    const pending = ["pending", "stop_pending"].includes(c.container_status);
     const addrStrip = c.container_addr && c.container_addr.length
       ? `<div class="addr-strip">
           <span class="live-dot" aria-hidden="true"></span>
@@ -244,9 +221,10 @@ function renderScore() {
     view.id = "scoreView";
     $("#dash").appendChild(view);
   }
-  const { total, earned, scored } = summarize();
   const byDiff = {};
   state.challenges.forEach((c) => { byDiff[c.difficulty] = byDiff[c.difficulty] || []; byDiff[c.difficulty].push(c); });
+  const total = state.challenges.reduce((s, c) => s + c.total_score, 0);
+  const earned = state.challenges.reduce((s, c) => s + (state.earned.get(c.unique_code) || 0), 0);
   const rows = Object.entries(byDiff).map(([d, list]) => {
     const done = list.filter((c) => c.is_completed).length;
     return `<div class="score-row">
@@ -259,7 +237,7 @@ function renderScore() {
     <div class="score-hero">
       <p class="dash-eyebrow">CURRENT SCORE</p>
       <p class="score-total">${earned}<span class="score-total-of">/ ${total}</span></p>
-      <p class="score-sub">已从 ${scored} 题获得得分</p>
+      <p class="score-sub">已从 ${state.challenges.filter((c) => (state.earned.get(c.unique_code) || 0) > 0).length} 题获得得分</p>
     </div>
     <div class="score-break">${rows}</div>
   </div>`;
@@ -270,14 +248,12 @@ function renderScore() {
 async function startChallenge(code) {
   await api(`/start?unique_code=${encodeURIComponent(code)}`, { method: "POST" });
   toast("实例已启动，正在就绪…", "info");
-  ensurePolling(); // 先拉起轮询：即使随后的刷新失败，下一次轮询也能自愈
   await refresh(true);
 }
 
 async function closeChallenge(code) {
   await api(`/close?unique_code=${encodeURIComponent(code)}`, { method: "POST" });
   toast("实例已关闭，资源已释放", "info");
-  ensurePolling();
   await refresh(true);
 }
 
@@ -289,14 +265,12 @@ async function fetchHint(code) {
 
 async function submitFlag(code, flag) {
   const r = await api("/submit", { method: "POST", body: JSON.stringify({ unique_code: code, flag }) });
-  // 以服务端累计为准；强转数字，防止远端返回字符串时发生拼接（"0"+"40"="040"）或缺失时得到 NaN
-  if (r.correct) state.earned.set(code, Number(r.cumulative_score) || 0);
+  state.earned.set(code, (state.earned.get(code) || 0) + (r.correct ? r.awarded : 0));
   const box = $("#submitResult");
   box.classList.remove("ok", "err");
   if (r.correct) {
     box.classList.add("ok");
-    // 代理模式下这些字段来自远端平台，必须转义后再插入 innerHTML
-    box.innerHTML = `<span>✓ 正确</span><span>本次 +<b>${esc(r.awarded)}</b> 分 · 该题累计 <b>${esc(r.cumulative_score)}</b> 分 · <b>${esc(r.correct_flag_count)}/${esc(r.total_flag_count)}</b> flag</span>`;
+    box.innerHTML = `<span>✓ 正确</span><span>本次 +<b>${r.awarded}</b> 分 · 该题累计 <b>${r.cumulative_score}</b> 分 · <b>${r.correct_flag_count}/${r.total_flag_count}</b> flag</span>`;
   } else {
     box.classList.add("err");
     box.innerHTML = `<span>✕ 错误</span><span>该 flag 不正确，请重试。</span>`;
@@ -323,21 +297,11 @@ async function refresh(silent = false) {
 }
 
 function startPollingIfPending() {
-  // 只要还有运行中的实例就轮询：瞬时状态之外，任务过期/删除（服务端 404 触发
-  // 自动断开）与代理模式下远端平台的变更都必须能观察到，不能只盯 pending。
   const pending = state.challenges.some(isRunning);
   if (pending && !state.pollTimer) {
     state.pollTimer = setInterval(() => refresh(true), 2500);
   } else if (!pending && state.pollTimer) {
     stopPolling();
-  }
-}
-
-// 用户操作成功但随后的刷新可能失败（如上游瞬时 502）：此时本地状态仍是旧值，
-// 按状态判定不会启动轮询，必须先无条件拉起定时器，让下一轮刷新自愈。
-function ensurePolling() {
-  if (!state.pollTimer && state.challenges.length) {
-    state.pollTimer = setInterval(() => refresh(true), 2500);
   }
 }
 
@@ -427,29 +391,9 @@ document.addEventListener("keydown", (ev) => {
 
 /* ---------- 启动 ---------- */
 
-let autoRetryNotified = false;
-
-// 代理模式下令牌由服务端注入页面，用户无法在网关注入——上游暂时不可达时
-// 不能像本地模式那样断开让用户重输令牌，而要自动重试直到恢复。
-async function autoConnect() {
-  try {
-    await connect(state.token);
-  } catch {
-    if (TSC.baseUrl) {
-      if (!autoRetryNotified) {
-        toast("上游服务暂不可达，3 秒后自动重试…", "warn");
-        autoRetryNotified = true;
-      }
-      setTimeout(autoConnect, 3000);
-    } else {
-      disconnect();
-    }
-  }
-}
-
 if (state.token) {
   $("#tokenInput").value = state.token;
-  autoConnect();
+  connect(state.token).catch(() => disconnect());
 } else {
   $("#gate").hidden = false;
   $("#tokenInput").focus();

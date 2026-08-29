@@ -65,4 +65,12 @@ export const api = {
     request(`/openapi/v1/challenges/close?unique_code=${encodeURIComponent(uniqueCode)}`, {
       method: 'POST',
     }),
+  vpnStatus: () => request('/openapi/v1/vpn/status'),
+  vpnUpload: (content) =>
+    request('/openapi/v1/vpn/config', {
+      method: 'POST',
+      body: JSON.stringify({ content }),
+    }),
+  vpnStart: () => request('/openapi/v1/vpn/start', { method: 'POST' }),
+  vpnStop: () => request('/openapi/v1/vpn/stop', { method: 'POST' }),
 }

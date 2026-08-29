@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { settings, llmReady, settingsReady } from '../api/settings'
 import { api } from '../api/tsecbench'
 import { askLLM } from '../api/llm'
@@ -8,6 +8,28 @@ const result = ref('')
 const resultType = ref('')
 const platformConfigured = computed(() => settingsReady())
 const aiConfigured = computed(() => llmReady())
+
+const vpn = ref(null)
+const vpnBusy = ref(false)
+const vpnFile = ref(null)
+let vpnTimer = null
+
+async function loadVpn() {
+  try {
+    vpn.value = await api.vpnStatus()
+  } catch (err) {
+    /* 平台不可用时静默 */
+  }
+}
+
+onMounted(() => {
+  loadVpn()
+  vpnTimer = setInterval(loadVpn, 3000)
+})
+
+onBeforeUnmount(() => {
+  if (vpnTimer) clearInterval(vpnTimer)
+})
 
 function log(type, text) {
   resultType.value = type
@@ -38,6 +60,61 @@ async function testLLM() {
     log('success', 'LLM 连接成功')
   } catch (err) {
     log('error', `LLM 连接失败: ${err.message}`)
+  }
+}
+
+function onVpnFilePicked(event) {
+  const file = event.target.files?.[0]
+  if (!file) return
+  const reader = new FileReader()
+  reader.onload = async () => {
+    vpnFile.value = { name: file.name, content: String(reader.result || '') }
+    log('info', `已读取配置文件 ${file.name}（${vpnFile.value.content.length} 字节），点击上传生效`)
+  }
+  reader.readAsText(file)
+}
+
+async function uploadVpn() {
+  if (!vpnFile.value) {
+    log('error', '请先选择 .ovpn 配置文件')
+    return
+  }
+  vpnBusy.value = true
+  try {
+    vpn.value = await api.vpnUpload(vpnFile.value.content)
+    log('success', 'VPN 配置已上传' + (vpn.value.running ? '，已自动重连' : ''))
+  } catch (err) {
+    log('error', `上传失败 [${err.code || err.status}]: ${err.message}`)
+  } finally {
+    vpnBusy.value = false
+  }
+}
+
+async function startVpn() {
+  vpnBusy.value = true
+  try {
+    vpn.value = await api.vpnStart()
+    if (vpn.value.running) {
+      log('success', 'VPN 已连接' + (vpn.value.tun_up ? '（tun 接口已就绪）' : '（tun 接口未就绪，请稍候）'))
+    } else {
+      log('error', 'VPN 启动失败，请检查配置文件与 openvpn 日志')
+    }
+  } catch (err) {
+    log('error', `启动失败 [${err.code || err.status}]: ${err.message}`)
+  } finally {
+    vpnBusy.value = false
+  }
+}
+
+async function stopVpn() {
+  vpnBusy.value = true
+  try {
+    vpn.value = await api.vpnStop()
+    log('success', 'VPN 已断开')
+  } catch (err) {
+    log('error', `断开失败 [${err.code || err.status}]: ${err.message}`)
+  } finally {
+    vpnBusy.value = false
   }
 }
 </script>
@@ -92,7 +169,23 @@ async function testLLM() {
         </div>
         <div class="field">
           <label for="llm-model">MODEL <span>模型名称</span></label>
-          <input id="llm-model" v-model="settings.llmModel" type="text" placeholder="deepseek-chat" />
+          <input id="llm-model" v-model="settings.llmModel" type="text" placeholder="deepseek-v4-flash" />
+        </div>
+        <label class="toggle-row">
+          <span>
+            <strong>思考模式（Thinking）</strong>
+            <small>DeepSeek 思考模式，适合复杂推理题，响应较慢。</small>
+          </span>
+          <input v-model="settings.llmThinking" type="checkbox" />
+          <i aria-hidden="true"></i>
+        </label>
+        <div v-if="settings.llmThinking" class="field">
+          <label for="llm-reasoning">REASONING EFFORT <span>推理强度</span></label>
+          <select id="llm-reasoning" v-model="settings.llmReasoningEffort">
+            <option value="low">low</option>
+            <option value="medium">medium</option>
+            <option value="high">high</option>
+          </select>
         </div>
         <button class="ai" @click="testLLM"><span class="button-glyph" aria-hidden="true">AI</span>测试 LLM 连接</button>
       </section>
@@ -117,6 +210,36 @@ async function testLLM() {
           <input v-model="settings.autoClose" type="checkbox" />
           <i aria-hidden="true"></i>
         </label>
+      </section>
+
+      <section class="settings-card settings-vpn">
+        <div class="card-heading">
+          <div><p class="eyebrow mono">04 / TUNNEL</p><h2>靶场 VPN</h2></div>
+          <span class="card-state" :class="{ ready: vpn?.running }">{{ vpn?.running ? 'CONNECTED' : vpn?.configured ? 'CONFIGURED' : 'REQUIRED' }}</span>
+        </div>
+        <p class="card-description">上传任务下发的 OpenVPN 配置（.ovpn）。启动后容器地址才可通过 VPN 访问。</p>
+        <div class="vpn-status-line">
+          <span class="vpn-status-item">
+            <i class="vpn-dot" :class="{ on: vpn?.running }" aria-hidden="true"></i>
+            连接: {{ vpn?.running ? '已连接' : '未连接' }}
+          </span>
+          <span class="vpn-status-item">
+            <i class="vpn-dot" :class="{ on: vpn?.tun_up }" aria-hidden="true"></i>
+            tun 接口: {{ vpn?.tun_up ? '已就绪' : '未就绪' }}
+          </span>
+          <span class="vpn-status-item mono">配置: {{ vpn?.configured ? (vpn?.config_name || 'client.ovpn') : '未上传' }}</span>
+        </div>
+        <div class="vpn-upload">
+          <label class="vpn-file-button">
+            <input type="file" accept=".ovpn,text/plain" :disabled="vpnBusy" @change="onVpnFilePicked" />
+            {{ vpnFile ? vpnFile.name : '选择 .ovpn 文件' }}
+          </label>
+          <button class="primary" :disabled="!vpnFile || vpnBusy" @click="uploadVpn">上传配置</button>
+        </div>
+        <div class="vpn-actions">
+          <button class="primary" :disabled="!vpn?.configured || vpnBusy || vpn?.running" @click="startVpn">启动 VPN</button>
+          <button :disabled="!vpn?.running || vpnBusy" @click="stopVpn">断开 VPN</button>
+        </div>
       </section>
     </div>
 
@@ -468,5 +591,84 @@ async function testLLM() {
     animation: none;
     transition: none;
   }
+}
+
+/* ── VPN 面板 ── */
+.settings-vpn {
+  grid-column: 1 / -1;
+}
+
+.vpn-status-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
+.vpn-status-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.vpn-status-item .mono {
+  font-size: 11px;
+}
+
+.vpn-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--risk);
+  box-shadow: 0 0 0 3px var(--risk-soft);
+}
+
+.vpn-dot.on {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.vpn-upload {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.vpn-file-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 8px;
+  color: var(--text-dim);
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 180ms ease, color 180ms ease;
+}
+
+.vpn-file-button:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.vpn-file-button input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.vpn-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 </style>
